@@ -102,7 +102,7 @@ model fcsets {
 
 model grammarrules {
   grammar_id        Int                     @id @default(autoincrement())
-  rule_structure    String                  @db.VarChar(255)
+  grammar_structure String                 @db.VarChar(255)
   explanation_viet  String                  @db.Text
   example_jp        String                  @db.Text
   example_viet      String?                 @db.Text
@@ -112,7 +112,7 @@ model grammarrules {
 
   @@index([jlpt_level], map: "idx_grammar_level")
   @@index([is_published], map: "idx_grammar_published")
-  @@fulltext([rule_structure, explanation_viet, example_jp], map: "ftx_grammar_text")
+  @@fulltext([grammar_structure, explanation_viet, example_jp], map: "ftx_grammar_text")
 }
 
 model systemstats {
@@ -179,11 +179,9 @@ model uservocabstatus {
 
 model vocabitems {
   vocab_id        Int                   @id @default(autoincrement())
-  word_kanji      String                @db.VarChar(100)
-  word_kana       String                @db.VarChar(100)
-  word_viet       String                @db.Text
-  example_jp      String?               @db.Text
-  example_viet    String?               @db.Text
+  word      String                @db.VarChar(100)
+  meaning       String                @db.VarChar(100)
+  furigana       String                @db.Text
   image_url       String?               @db.VarChar(255)
   jlpt_level      vocabitems_jlpt_level
   is_published    Boolean               @default(false)
@@ -191,7 +189,7 @@ model vocabitems {
 
   @@index([jlpt_level], map: "idx_vocab_level")
   @@index([is_published], map: "idx_vocab_published")
-  @@fulltext([word_kanji, word_kana, word_viet, example_jp, example_viet], map: "ftx_vocab_text")
+  @@fulltext([word, meaning, furigana], map: "ftx_vocab_text")
 }
 
 enum admins_role {
