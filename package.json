@@ -1,6 +1,7 @@
 {
   "name": "japanese-ai-backend",
   "version": "1.0.0",
+  "type":"module",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -20,6 +21,7 @@
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",
+    "multer": "^2.0.2",
     "zod": "^4.1.12"
   },
   "devDependencies": {
