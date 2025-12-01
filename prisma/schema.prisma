@@ -65,7 +65,7 @@ model fccards {
   set_id        Int
   side_jp       String  @db.Text
   side_viet     String  @db.Text
-  image_url     String? @db.VarChar(255)
+  image_url     String? @db.Text
   mastery_level Int     @default(1) @db.TinyInt
   fcsets        fcsets  @relation(fields: [set_id], references: [set_id], onDelete: Cascade, map: "fk_fccards_set")
 
