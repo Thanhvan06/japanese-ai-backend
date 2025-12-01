@@ -1,6 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { compactTitle } from "../services/diary.util.js";
-import { correctJapanese } from "../services/nlp.services.js";
+import { correctJapanese, checkGrammar } from "../services/nlp.services.js";
 
 const prisma = new PrismaClient();
 
@@ -15,7 +15,16 @@ export const createDiary = async (req, res, next) => {
     if (!userId) return res.status(401).json({ message: "Unauthorized" });
 
     const { title, content_jp } = req.body;
-    const coverImg = req.file ? `/uploads/diary_covers/${req.file.filename}` : null;
+    
+    // Handle multiple images
+    let imagesArray = [];
+    if (req.files && req.files.length > 0) {
+      imagesArray = req.files.map(f => `/uploads/diary_images/${f.filename}`);
+    }
+    const imagesJson = imagesArray.length > 0 ? JSON.stringify(imagesArray) : null;
+    
+    // Keep first image as image_url for backward compatibility
+    const firstImage = imagesArray.length > 0 ? imagesArray[0] : null;
 
     const nlp = await correctJapanese(content_jp);
 
@@ -24,7 +33,8 @@ export const createDiary = async (req, res, next) => {
         user_id: userId,
         title: title?.trim() || "",
         content_jp: nlp.corrected || content_jp || "",
-        image_url: coverImg,
+        image_url: firstImage,
+        images: imagesJson,
         nlp_analysis: JSON.stringify(nlp),
       },
     });
@@ -99,8 +109,29 @@ export const updateDiary = async (req, res, next) => {
     });
     if (!existed) return res.status(404).json({ message: "Diary not found" });
 
-    // If new image is uploaded
-    const newCover = req.file ? `/uploads/diary_covers/${req.file.filename}` : null;
+    // Handle multiple images
+    // Start with existing images
+    let imagesArray = existed.images ? JSON.parse(existed.images) : [];
+    
+    // If existing images are passed as JSON string in body (when updating)
+    if (req.body.existing_images) {
+      try {
+        imagesArray = typeof req.body.existing_images === 'string' 
+          ? JSON.parse(req.body.existing_images) 
+          : req.body.existing_images;
+      } catch (e) {
+        // Keep existing if parse fails
+      }
+    }
+    
+    // Add new uploaded files
+    if (req.files && req.files.length > 0) {
+      const newImages = req.files.map(f => `/uploads/diary_images/${f.filename}`);
+      imagesArray = [...imagesArray, ...newImages];
+    }
+    
+    const imagesJson = imagesArray.length > 0 ? JSON.stringify(imagesArray) : null;
+    const firstImage = imagesArray.length > 0 ? imagesArray[0] : null;
 
     let nlp = null;
     if (typeof req.body.content_jp === "string") {
@@ -112,7 +143,8 @@ export const updateDiary = async (req, res, next) => {
       data: {
         title: req.body.title ? req.body.title.trim() : existed.title,
         content_jp: nlp ? nlp.corrected : existed.content_jp,
-        image_url: newCover ?? existed.image_url,
+        image_url: firstImage ?? existed.image_url,
+        images: imagesJson ?? existed.images,
         nlp_analysis: nlp ? JSON.stringify(nlp) : existed.nlp_analysis,
       },
     });
@@ -147,6 +179,26 @@ export const deleteDiary = async (req, res, next) => {
   }
 };
 
+// ✅ Kiểm tra ngữ pháp
+export const checkGrammarDiary = async (req, res, next) => {
+  try {
+    const userId = pickUserId(req);
+    if (!userId) return res.status(401).json({ message: "Unauthorized" });
+
+    const { text } = req.body;
+    
+    if (!text || typeof text !== "string") {
+      return res.status(400).json({ message: "Text is required" });
+    }
+
+    const errors = await checkGrammar(text);
+    
+    res.json({ errors });
+  } catch (err) {
+    next(err);
+  }
+};
+
 function serialize(row) {
   return {
     id: row.diary_id,
@@ -155,6 +207,7 @@ function serialize(row) {
     title_compact: compactTitle(row.title || ""),
     content_jp: row.content_jp,
     image_url: row.image_url,
+    images: row.images ? JSON.parse(row.images) : [],
     created_at: row.created_at,
     updated_at: row.updated_at,
     nlp_analysis: row.nlp_analysis ? JSON.parse(row.nlp_analysis) : null,

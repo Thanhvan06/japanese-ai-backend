@@ -49,6 +49,7 @@ model diaryentries {
   title        String?  @db.VarChar(255)
   content_jp   String   @db.Text
   image_url    String?  @db.VarChar(255)
+  images       String?  @db.Text
   nlp_analysis String?  @db.LongText
   created_at   DateTime @default(now()) @db.Timestamp(0)
   updated_at   DateTime @default(now()) @db.Timestamp(0)

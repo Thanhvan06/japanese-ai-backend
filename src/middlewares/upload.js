@@ -18,3 +18,7 @@ const makeStorage = (subDir) => multer.diskStorage({
 
 export const uploadCover = multer({ storage: makeStorage("diary_covers") });
 export const uploadImage = multer({ storage: makeStorage("diary_images") });
+export const uploadDiaryImages = multer({ 
+  storage: makeStorage("diary_images"),
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB per file
+});
