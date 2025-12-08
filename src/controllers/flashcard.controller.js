@@ -1,5 +1,10 @@
 import { z } from "zod";
 import { prisma } from "../prisma.js";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // ----- Validation Schemas -----
 const createFolderSchema = z.object({
@@ -14,7 +19,7 @@ const createSetSchema = z.object({
 const createCardSchema = z.object({
   sideJp: z.string().min(1, "Mặt tiếng Nhật không được để trống"),
   sideViet: z.string().min(1, "Mặt tiếng Việt không được để trống"),
-  imageUrl: z.string().url().optional().or(z.literal("")).nullable()
+  imageUrl: z.string().optional().or(z.literal("")).nullable()
 });
 
 const updateCardSchema = createCardSchema.partial();
@@ -36,7 +41,6 @@ export const getFolders = async (req, res, next) => {
           select: {
             set_id: true,
             set_name: true,
-            times_practiced: true,
             created_at: true,
             _count: {
               select: { fccards: true }
@@ -308,7 +312,22 @@ export const getCards = async (req, res, next) => {
 export const createCard = async (req, res, next) => {
   try {
     const setId = parseInt(req.params.setId);
-    const data = createCardSchema.parse(req.body);
+    
+    let imageUrl = null;
+    
+    if (req.file) {
+      imageUrl = `/uploads/${req.file.filename}`;
+    } else if (req.body.imageUrl && req.body.imageUrl.trim()) {
+      imageUrl = req.body.imageUrl.trim();
+    }
+    
+    const data = {
+      sideJp: req.body.sideJp,
+      sideViet: req.body.sideViet,
+      imageUrl: imageUrl
+    };
+    
+    const validated = createCardSchema.parse(data);
 
     // Kiểm tra set thuộc về user
     const set = await prisma.fcsets.findFirst({
@@ -325,9 +344,9 @@ export const createCard = async (req, res, next) => {
     const card = await prisma.fccards.create({
       data: {
         set_id: setId,
-        side_jp: data.sideJp,
-        side_viet: data.sideViet,
-        image_url: data.imageUrl || null,
+        side_jp: validated.sideJp,
+        side_viet: validated.sideViet,
+        image_url: validated.imageUrl || null,
         mastery_level: 1
       }
     });
@@ -343,7 +362,6 @@ export const updateCard = async (req, res, next) => {
   try {
     const setId = parseInt(req.params.setId);
     const cardId = parseInt(req.params.cardId);
-    const data = updateCardSchema.parse(req.body);
 
     // Kiểm tra set thuộc về user
     const set = await prisma.fcsets.findFirst({
@@ -369,12 +387,31 @@ export const updateCard = async (req, res, next) => {
       return res.status(404).json({ message: "Không tìm thấy card" });
     }
 
+    let imageUrl = undefined;
+    
+    if (req.file) {
+      imageUrl = `/uploads/${req.file.filename}`;
+    } else if (req.body.imageUrl !== undefined) {
+      if (req.body.imageUrl && req.body.imageUrl.trim()) {
+        imageUrl = req.body.imageUrl.trim();
+      } else {
+        imageUrl = null;
+      }
+    }
+    
+    const updateData = {};
+    if (req.body.sideJp !== undefined) updateData.sideJp = req.body.sideJp;
+    if (req.body.sideViet !== undefined) updateData.sideViet = req.body.sideViet;
+    if (imageUrl !== undefined) updateData.imageUrl = imageUrl;
+    
+    const validated = updateCardSchema.parse(updateData);
+
     const updatedCard = await prisma.fccards.update({
       where: { card_id: cardId },
       data: {
-        side_jp: data.sideJp !== undefined ? data.sideJp : card.side_jp,
-        side_viet: data.sideViet !== undefined ? data.sideViet : card.side_viet,
-        image_url: data.imageUrl !== undefined ? data.imageUrl : card.image_url
+        side_jp: validated.sideJp !== undefined ? validated.sideJp : card.side_jp,
+        side_viet: validated.sideViet !== undefined ? validated.sideViet : card.side_viet,
+        image_url: validated.imageUrl !== undefined ? validated.imageUrl : card.image_url
       }
     });
 
@@ -462,14 +499,6 @@ export const startStudy = async (req, res, next) => {
     if (cards.length === 0) {
       return res.status(404).json({ message: "Không có card nào để học" });
     }
-
-    // Cập nhật times_practiced
-    await prisma.fcsets.update({
-      where: { set_id: setId },
-      data: {
-        times_practiced: { increment: 1 }
-      }
-    });
 
     // Trả về cards (chỉ mặt trước để học)
     const studyCards = cards.map(card => ({
@@ -617,7 +646,6 @@ export const getStudyStats = async (req, res, next) => {
     res.json({
       set_id: setId,
       set_name: set.set_name,
-      times_practiced: set.times_practiced,
       total_cards: totalCards,
       mastered_cards: masteredCards,
       learning_cards: learningCards,

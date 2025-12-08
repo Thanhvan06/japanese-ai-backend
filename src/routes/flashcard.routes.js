@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { auth } from "../middlewares/auth.js";
+import { uploadSingle } from "../middlewares/upload.js";
 import {
   // Folders
   getFolders,
@@ -42,8 +43,8 @@ r.delete("/sets/:setId", deleteSet);
 
 // ----- Card Routes -----
 r.get("/sets/:setId/cards", getCards);
-r.post("/sets/:setId/cards", createCard);
-r.put("/sets/:setId/cards/:cardId", updateCard);
+r.post("/sets/:setId/cards", uploadSingle, createCard);
+r.put("/sets/:setId/cards/:cardId", uploadSingle, updateCard);
 r.delete("/sets/:setId/cards/:cardId", deleteCard);
 
 // ----- Study Routes -----
