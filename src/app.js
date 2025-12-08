@@ -17,9 +17,21 @@ app.use(express.json());
 app.use(cors({ origin: process.env.CLIENT_ORIGIN || "*", credentials: true }));
 app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 
-app.get("/", (req, res) => res.json({ ok: true, service: "japanese-ai-backend" }));
+app.use(
+  cors({
+    origin: process.env.CLIENT_ORIGIN || "http://localhost:5173",
+    credentials: true,
+  })
+);
+
+// TEST route
+app.get("/", (req, res) =>
+  res.json({ ok: true, service: "japanese-ai-backend" })
+);
+
 app.use("/api/auth", authRoutes);
 app.use("/api/flashcards", flashcardRoutes);
 
 app.use(errorHandler);
+
 export default app;
