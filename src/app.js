@@ -9,6 +9,9 @@ import grammarRoutes from "./routes/grammar.routes.js";
 import profileRoutes from "./routes/profile.routes.js";
 import { errorHandler } from "./middlewares/error.js";
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 dotenv.config();
 const app = express();
 
