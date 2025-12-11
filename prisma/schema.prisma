@@ -178,12 +178,11 @@ model uservocabstatus {
 }
 model topics {
   topic_id   Int    @id @default(autoincrement())
-  jlpt_level vocabitems_jlpt_level
   topic_name String @db.VarChar(255)
 
   vocabitems vocabitems[]
 
-  @@unique([jlpt_level, topic_name])
+  @@unique([topic_name])
 }
 
 model vocabitems {

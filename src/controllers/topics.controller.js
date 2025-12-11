@@ -6,11 +6,14 @@ export const getTopics = async (req, res) => {
   const { level } = req.query;
 
   try {
-    const where = level ? { jlpt_level: level } : {};
-
+    // Get all topics with count of vocabularies
     const topics = await prisma.topics.findMany({
-      where,
       orderBy: { topic_id: "asc" },
+      include: {
+        _count: {
+          select: { vocabitems: true }
+        }
+      }
     });
 
     res.json(topics);
@@ -22,11 +25,12 @@ export const getTopics = async (req, res) => {
   }
 };
 
-// GET /api/topics/:topicId/vocab
+// GET /api/topics/:topicId/vocab?level=N5
 export const getTopicVocab = async (req, res) => {
   const topicId = Number(req.params.topicId);
+  const { level } = req.query;
 
-  if (!topicId) {
+  if (!topicId || isNaN(topicId)) {
     return res.status(400).json({ error: "topicId không hợp lệ" });
   }
 
@@ -39,17 +43,20 @@ export const getTopicVocab = async (req, res) => {
       return res.status(404).json({ error: "Không tìm thấy chủ đề" });
     }
 
+    // Get vocabulary items filtered by topic_id and optionally by level
+    const where = { topic_id: topicId };
+    if (level) {
+      where.jlpt_level = level;
+    }
+
     const vocab = await prisma.vocabitems.findMany({
-      where: {
-        topic_id: topicId,               // <-- nếu bạn dùng bảng trung gian, đổi chỗ này
-        // is_published: true,
-      },
+      where,
       orderBy: { vocab_id: "asc" },
     });
 
     res.json({ topic, vocab });
   } catch (err) {
-    console.error("Get topic vocab error:", err);
+    console.error("Get topic vocab error:", err.message);
     res.status(500).json({
       error: "Không lấy được từ vựng của chủ đề",
       detail: err.message,
