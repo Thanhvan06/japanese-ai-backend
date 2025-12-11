@@ -3,7 +3,9 @@ import cors from "cors";
 import dotenv from "dotenv";
 import authRoutes from "./routes/auth.routes.js";
 import vocabRoutes from "./routes/vocab.routes.js";
-import grammarRoutes from "./routes/grammar.routes.js";
+import topicRoutes from "./routes/topics.routes.js";
+// import grammarRoutes from "./routes/grammar.routes.js";
+// import chatRoutes from "./routes/chat.routes.js";
 import { errorHandler } from "./middlewares/error.js";
 
 dotenv.config();
@@ -25,7 +27,9 @@ app.get("/", (req, res) =>
 
 app.use("/api/auth", authRoutes);
 app.use("/api/vocab", vocabRoutes);
-app.use("/api/grammar", grammarRoutes);
+app.use("/api/topics", topicRoutes);
+// app.use("/api/grammar", grammarRoutes);
+// app.use("/api/chat", chatRoutes);
 
 app.use(errorHandler);
 
