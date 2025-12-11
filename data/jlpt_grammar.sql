@@ -333,3 +333,4 @@ VALUES
     ('326', 'といったところだ', 'chỉ khoảng…, cỡ khoảng…', '給料は20万円といったところだ。', 'Lương chỉ khoảng 200.000 yên.', 'N1', 'True');
 
 
+UPDATE grammar_points SET is_published = 1;
