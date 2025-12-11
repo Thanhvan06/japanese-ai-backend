@@ -65,7 +65,7 @@ model fccards {
   set_id        Int
   side_jp       String  @db.Text
   side_viet     String  @db.Text
-  image_url     String? @db.VarChar(255)
+  image_url     String? @db.Text
   mastery_level Int     @default(1) @db.TinyInt
   fcsets        fcsets  @relation(fields: [set_id], references: [set_id], onDelete: Cascade, map: "fk_fccards_set")
 
@@ -88,7 +88,6 @@ model fcsets {
   user_id         Int
   folder_id       Int?
   set_name        String     @db.VarChar(255)
-  times_practiced Int        @default(0)
   created_at      DateTime   @default(now()) @db.Timestamp(0)
   fccards         fccards[]
   fcfolders       fcfolders? @relation(fields: [folder_id], references: [folder_id], map: "fk_fcsets_folder")
@@ -96,7 +95,6 @@ model fcsets {
 
   @@index([created_at], map: "idx_fcsets_created_at")
   @@index([folder_id], map: "idx_fcsets_folder")
-  @@index([times_practiced], map: "idx_fcsets_times")
   @@index([user_id], map: "idx_fcsets_user")
 }
 

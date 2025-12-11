@@ -1,15 +1,24 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import path from "path";
+import { fileURLToPath } from "url";
 import authRoutes from "./routes/auth.routes.js";
 import vocabRoutes from "./routes/vocab.routes.js";
 import grammarRoutes from "./routes/grammar.routes.js";
+import profileRoutes from "./routes/profile.routes.js";
 import { errorHandler } from "./middlewares/error.js";
+import flashcardRoutes from "./routes/flashcard.routes.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 dotenv.config();
 const app = express();
 
 app.use(express.json());
+app.use(cors({ origin: process.env.CLIENT_ORIGIN || "*", credentials: true }));
+app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 
 app.use(
   cors({
@@ -26,6 +35,8 @@ app.get("/", (req, res) =>
 app.use("/api/auth", authRoutes);
 app.use("/api/vocab", vocabRoutes);
 app.use("/api/grammar", grammarRoutes);
+app.use("/api/profile", profileRoutes);
+app.use("/api/flashcards", flashcardRoutes);
 
 app.use(errorHandler);
 
