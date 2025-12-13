@@ -191,9 +191,9 @@ export const checkGrammarDiary = async (req, res, next) => {
       return res.status(400).json({ message: "Text is required" });
     }
 
-    const errors = await checkGrammar(text);
+    const { errors, furigana, natural_sentences } = await checkGrammar(text);
     
-    res.json({ errors });
+    res.json({ errors, furigana, natural_sentences });
   } catch (err) {
     next(err);
   }

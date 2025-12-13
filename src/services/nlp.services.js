@@ -1,106 +1,188 @@
-import OpenAI from "openai";
+import kuromoji from "kuromoji";
 
-let openai = null;
-if (process.env.OPENAI_API_KEY) {
-  openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-  });
+const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "qwen2:1.5b";
+const KUROMOJI_DICT =
+  process.env.KUROMOJI_DICT_PATH || "node_modules/kuromoji/dict";
+
+let tokenizerPromise = null;
+function getTokenizer() {
+  if (!tokenizerPromise) {
+    tokenizerPromise = new Promise((resolve, reject) => {
+      kuromoji.builder({ dicPath: KUROMOJI_DICT }).build((err, tokenizer) => {
+        if (err) {
+          console.error("Kuromoji build error:", err);
+          return reject(err);
+        }
+        resolve(tokenizer);
+      });
+    });
+  }
+  return tokenizerPromise;
 }
 
-// Tạm thời: trả về nguyên văn + metadata đơn giản.
-// Sau sẽ thay bằng gọi API NLP thật nếu có DIARY_NLP_PROVIDER=...
+async function tokenizeWithFurigana(text) {
+  try {
+    const tokenizer = await getTokenizer();
+    const tokens = tokenizer.tokenize(text || "");
+    return tokens.map((t) => ({
+      surface: t.surface_form,
+      reading: t.reading || t.surface_form,
+      pos: t.pos,
+    }));
+  } catch (err) {
+    console.error("Tokenize error:", err);
+    return [];
+  }
+}
+
+async function callOllama(messages) {
+  const res = await fetch(`${OLLAMA_URL}/api/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: OLLAMA_MODEL,
+      messages,
+      stream: false,
+      options: { temperature: 0.2 },
+    }),
+  });
+
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(`Ollama error ${res.status}: ${txt}`);
+  }
+
+  const data = await res.json();
+  return data.message?.content?.trim() || "";
+}
+
+function safeJsonParse(text, fallback) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return fallback;
+  }
+}
+
 export async function correctJapanese(text) {
-  if (!text) return { corrected: "", notes: [] };
-  // TODO: tích hợp provider (OpenAI/LanguageTool/giin/…)
-  return {
-    corrected: text, // chưa sửa, chỉ giữ chỗ
-    notes: []        // ví dụ: [{type:"spelling", from:"...", to:"..."}]
-  };
+  if (!text) return { corrected: "", notes: [], furigana: [] };
+
+  const furigana = await tokenizeWithFurigana(text);
+  try {
+    const prompt = `Bạn là trợ lý chỉnh sửa tiếng Nhật. Sửa chính tả/ ngữ pháp/ văn phong, giữ nguyên ý nghĩa và ngắn gọn, không giải thích.
+Trả về JSON:
+{
+  "corrected": "văn bản đã sửa",
+  "notes": ["ghi chú ngắn về thay đổi..."]
+}
+Chỉ trả JSON.`;
+
+    const content = await callOllama([
+      { role: "system", content: "Bạn chỉnh sửa tiếng Nhật, trả JSON thuần." },
+      { role: "user", content: `${prompt}\nVăn bản: """${text}"""` },
+    ]);
+
+    const cleaned = content
+      .replace(/```json\s*/g, "")
+      .replace(/```\s*/g, "")
+      .trim();
+    const parsed = safeJsonParse(cleaned, {});
+
+    const corrected =
+      typeof parsed.corrected === "string" && parsed.corrected.length > 0
+        ? parsed.corrected
+        : text;
+    const notes = Array.isArray(parsed.notes)
+      ? parsed.notes.filter((n) => typeof n === "string" && n.length > 0)
+      : [];
+
+    return { corrected, notes, furigana };
+  } catch (err) {
+    console.error("correctJapanese error:", err);
+    return { corrected: text, notes: [], furigana };
+  }
 }
 
 /**
  * Kiểm tra ngữ pháp tiếng Nhật và trả về danh sách lỗi với đề xuất sửa chữa
  * @param {string} text - Văn bản tiếng Nhật cần kiểm tra
- * @returns {Promise<Array>} Mảng các lỗi với format: {start_index, end_index, original_word, suggestions}
+ * @returns {Promise<Array>} Mảng lỗi: {start_index, end_index, original_word, suggestions}
  */
 export async function checkGrammar(text) {
+  const furigana = await tokenizeWithFurigana(text || "");
   if (!text || text.trim().length === 0) {
-    return [];
-  }
-
-  // Nếu không có OpenAI API key, trả về mảng rỗng
-  if (!openai || !process.env.OPENAI_API_KEY) {
-    console.warn("OPENAI_API_KEY not set, returning empty grammar check results");
-    return [];
+    return { errors: [], furigana, natural_sentences: [] };
   }
 
   try {
-    const prompt = `Bạn là một chuyên gia ngữ pháp tiếng Nhật. Hãy phân tích văn bản sau và tìm các lỗi ngữ pháp, chính tả, hoặc cách dùng từ không đúng.
+    const tokensForPrompt = furigana
+      .map((t) => `${t.surface}/${t.reading}/${t.pos}`)
+      .join(" ");
 
-Văn bản: "${text}"
-
-Hãy trả về kết quả dưới dạng JSON array, mỗi lỗi có format:
+    const prompt = `Bạn là chuyên gia ngữ pháp tiếng Nhật.
+Phân tích bằng Kuromoji tokens (surface/reading/pos): ${tokensForPrompt}
+Phát hiện lỗi ngữ pháp, lỗi từ vựng, lỗi ngữ cảnh.
+Đề xuất câu tự nhiên hơn nhưng giữ nguyên ý (tối đa 2).
+Trả về JSON:
 {
-  "start_index": số vị trí bắt đầu (0-based),
-  "end_index": số vị trí kết thúc (không bao gồm),
-  "original_word": "từ/cụm từ bị lỗi",
-  "suggestions": ["đề xuất 1", "đề xuất 2", ...]
+  "errors": [
+    {
+      "start_index": number (0-based),
+      "end_index": number (exclusive),
+      "original_word": "chuỗi gốc",
+      "suggestions": ["đề xuất 1", "đề xuất 2"]
+    }
+  ],
+  "natural_sentences": ["câu gợi ý 1", "câu gợi ý 2"]
 }
+Chỉ trả JSON, không markdown. Nếu không có lỗi, errors = []. Văn bản:
+"""${text}"""`;
 
-Chỉ trả về JSON array, không có text thêm. Nếu không có lỗi, trả về [].`;
+    const content = await callOllama([
+      { role: "system", content: "Trả về JSON array thuần, không chú thích." },
+      { role: "user", content: prompt },
+    ]);
 
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content: "Bạn là một chuyên gia ngữ pháp tiếng Nhật. Trả về kết quả dưới dạng JSON array thuần túy, không có markdown hoặc text thêm.",
-        },
-        {
-          role: "user",
-          content: prompt,
-        },
-      ],
-      temperature: 0.3,
-      max_tokens: 1000,
-    });
+    const cleaned = content
+      .replace(/```json\s*/g, "")
+      .replace(/```\s*/g, "")
+      .trim();
+    const parsed = safeJsonParse(cleaned, {});
 
-    const content = response.choices[0]?.message?.content?.trim();
-    if (!content) {
-      return [];
-    }
+    const rawErrors = Array.isArray(parsed.errors) ? parsed.errors : [];
+    const natural = Array.isArray(parsed.natural_sentences)
+      ? parsed.natural_sentences
+      : [];
 
-    // Loại bỏ markdown code blocks nếu có
-    const jsonContent = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-    
-    const errors = JSON.parse(jsonContent);
-    
-    // Validate và format kết quả
-    if (!Array.isArray(errors)) {
-      return [];
-    }
-
-    return errors
-      .filter((error) => {
-        return (
-          typeof error.start_index === "number" &&
-          typeof error.end_index === "number" &&
-          typeof error.original_word === "string" &&
-          Array.isArray(error.suggestions) &&
-          error.start_index >= 0 &&
-          error.end_index > error.start_index &&
-          error.end_index <= text.length
-        );
-      })
-      .map((error) => ({
-        start_index: error.start_index,
-        end_index: error.end_index,
-        original_word: error.original_word,
-        suggestions: error.suggestions.filter((s) => typeof s === "string" && s.length > 0),
+    const errors = rawErrors
+      .filter(
+        (e) =>
+          typeof e.start_index === "number" &&
+          typeof e.end_index === "number" &&
+          e.start_index >= 0 &&
+          e.end_index > e.start_index &&
+          e.end_index <= text.length &&
+          typeof e.original_word === "string"
+      )
+      .map((e) => ({
+        start_index: e.start_index,
+        end_index: e.end_index,
+        original_word: e.original_word,
+        suggestions: Array.isArray(e.suggestions)
+          ? e.suggestions.filter(
+              (s) => typeof s === "string" && s.trim().length > 0
+            )
+          : [],
       }));
+
+    const natural_sentences = natural
+      .filter((s) => typeof s === "string" && s.trim().length > 0)
+      .slice(0, 2);
+
+    return { errors, furigana, natural_sentences };
   } catch (error) {
     console.error("Error checking grammar:", error);
-    // Trả về mảng rỗng nếu có lỗi để không làm gián đoạn trải nghiệm người dùng
-    return [];
+    return { errors: [], furigana, natural_sentences: [] };
   }
 }
