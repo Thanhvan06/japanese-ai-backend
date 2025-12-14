@@ -174,19 +174,32 @@ model uservocabstatus {
   @@index([vocab_id], map: "fk_uvs_vocab")
   @@index([last_reviewed], map: "idx_uvs_last_reviewed")
 }
+model topics {
+  topic_id   Int    @id @default(autoincrement())
+  topic_name String @db.VarChar(255)
+
+  vocabitems vocabitems[]
+
+  @@unique([topic_name])
+}
 
 model vocabitems {
   vocab_id        Int                   @id @default(autoincrement())
-  word      String                @db.VarChar(100)
-  meaning       String                @db.VarChar(100)
-  furigana       String                @db.Text
+  word            String                @db.VarChar(100)
+  meaning         String                @db.VarChar(100)
+  furigana        String                @db.Text
   image_url       String?               @db.VarChar(255)
   jlpt_level      vocabitems_jlpt_level
   is_published    Boolean               @default(false)
+
+  topic_id        Int?
+  topic           topics?               @relation(fields: [topic_id], references: [topic_id], onDelete: SetNull)
+
   uservocabstatus uservocabstatus[]
 
   @@index([jlpt_level], map: "idx_vocab_level")
   @@index([is_published], map: "idx_vocab_published")
+  @@index([topic_id], map: "idx_vocab_topic")
   @@fulltext([word, meaning, furigana], map: "ftx_vocab_text")
 }
 
