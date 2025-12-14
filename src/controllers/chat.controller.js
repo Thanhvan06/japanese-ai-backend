@@ -6,7 +6,78 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_MODEL = "gemini-2.5-flash";
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1/models/${GEMINI_MODEL}:generateContent`;
 
-async function callGemini(prompt) {
+async function callGemini(systemInstruction, userMessage, history = []) {
+  if (!GEMINI_API_KEY) {
+    throw new Error("Thiếu GEMINI_API_KEY trong .env");
+  }
+
+  try {
+    // Xây dựng conversation history
+    const contents = [];
+    
+    // Thêm lịch sử hội thoại (nếu có)
+    if (history.length > 0) {
+      history.forEach((msg) => {
+        contents.push({
+          role: msg.sender_type === "user" ? "user" : "model",
+          parts: [{ text: msg.content }],
+        });
+      });
+    }
+
+    // Thêm message hiện tại
+    contents.push({
+      role: "user",
+      parts: [{ text: userMessage }],
+    });
+
+    const requestBody = {
+      systemInstruction: {
+        parts: [{ text: systemInstruction }],
+      },
+      contents: contents,
+      generationConfig: {
+        temperature: 0.7, // Độ sáng tạo (0-1), 0.7 = cân bằng
+        topK: 40,
+        topP: 0.95,
+        maxOutputTokens: 2048,
+      },
+    };
+
+    const response = await axios.post(
+      `${GEMINI_URL}?key=${GEMINI_API_KEY}`,
+      requestBody,
+      {
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    // Lấy text từ response
+    const candidates = response.data.candidates || [];
+    const content = candidates[0]?.content;
+    const parts = content?.parts || [];
+    const text = parts.map((p) => p.text || "").join("").trim();
+
+    return text || "Xin lỗi, hiện tại tôi không trả lời được.";
+  } catch (err) {
+    console.error("Gemini HTTP API Error:", err.response?.data || err.message);
+    
+    // Fallback: Thử cách cũ nếu systemInstruction không được hỗ trợ
+    if (err.response?.status === 400) {
+      console.warn("SystemInstruction không được hỗ trợ, dùng prompt truyền thống");
+      return callGeminiLegacy(systemInstruction + "\n\n" + userMessage);
+    }
+    
+    throw new Error(
+      err.response?.data?.error?.message || "Lỗi khi gọi Gemini API"
+    );
+  }
+}
+
+// Fallback method nếu systemInstruction không được hỗ trợ
+async function callGeminiLegacy(prompt) {
   if (!GEMINI_API_KEY) {
     throw new Error("Thiếu GEMINI_API_KEY trong .env");
   }
@@ -28,7 +99,6 @@ async function callGemini(prompt) {
       }
     );
 
-    // Lấy text từ response
     const candidates = response.data.candidates || [];
     const content = candidates[0]?.content;
     const parts = content?.parts || [];
@@ -36,7 +106,7 @@ async function callGemini(prompt) {
 
     return text || "Xin lỗi, hiện tại tôi không trả lời được.";
   } catch (err) {
-    console.error("Gemini HTTP API Error:", err.response?.data || err.message);
+    console.error("Gemini Legacy API Error:", err.response?.data || err.message);
     throw new Error(
       err.response?.data?.error?.message || "Lỗi khi gọi Gemini API"
     );
@@ -119,7 +189,14 @@ export const sendMessage = async (req, res) => {
   }
 
   try {
-    // 1. Lưu message user
+    // 1. Lấy history trước (không bao gồm message user sắp tạo)
+    const existingHistory = await prisma.chatmessages.findMany({
+      where: { session_id },
+      orderBy: { sent_at: "asc" },
+      take: 19, // Lấy 19 để tổng cộng với message mới = 20
+    });
+
+    // 2. Lưu message user
     const userMessage = await prisma.chatmessages.create({
       data: {
         session_id,
@@ -128,45 +205,39 @@ export const sendMessage = async (req, res) => {
       },
     });
 
-    // 2. Lấy history
-    const history = await prisma.chatmessages.findMany({
-      where: { session_id },
-      orderBy: { sent_at: "asc" },
-      take: 20,
-    });
+    // System instruction - định nghĩa vai trò và cách trả lời
+    const systemPrompt = `Bạn là ManaVi - một trợ lý AI thông minh và thân thiện, chuyên giúp đỡ người Việt Nam học tiếng Nhật.
 
-    const historyText = history
-      .map((m) =>
-        m.sender_type === "user"
-          ? `Học viên: ${m.content}`
-          : `Giáo viên AI: ${m.content}`
-      )
-      .join("\n");
+VAI TRÒ CỦA BẠN:
+- Giáo viên tiếng Nhật: Giải thích ngữ pháp, từ vựng, cách sử dụng một cách dễ hiểu
+- Bạn đồng hành: Trả lời các câu hỏi về học tập, cuộc sống, và mọi thứ học viên cần
+- Người bạn: Giao tiếp tự nhiên, thân thiện, khuyến khích và động viên
 
-    const prompt = `
-Bạn là giáo viên tiếng Nhật cho người Việt.
-Trả lời ngắn gọn, dễ hiểu (VN là chính), kèm ví dụ JP.
-Format:
-1) Trả lời nhanh (1-2 câu)
-2) Từ vựng (tối đa 5): JP | Kana | Nghĩa
-3) Ngữ pháp (tối đa 2): giải thích + ví dụ + dịch
-4) Hội thoại (2-3 lượt): JP + dịch
-5) Bài tập 1 câu
+NGUYÊN TẮC TRẢ LỜI:
+1. TỰ NHIÊN: Trả lời như đang nói chuyện với bạn, không cần format cứng nhắc
+2. HỮU ÍCH: Tập trung vào việc giải đáp thắc mắc một cách hữu ích nhất
+3. LINH HOẠT: 
+   - Câu hỏi ngắn → trả lời ngắn gọn, súc tích
+   - Câu hỏi phức tạp → giải thích chi tiết, có ví dụ
+   - Câu hỏi về tiếng Nhật → giải thích rõ ràng, kèm ví dụ tiếng Nhật (có cách đọc và nghĩa)
+   - Câu hỏi khác → vẫn trả lời hữu ích, có thể gợi ý về tiếng Nhật nếu phù hợp
+4. NGÔN NGỮ: Chủ yếu tiếng Việt, kèm tiếng Nhật khi cần (có cách đọc hiragana/romaji và nghĩa)
+5. THÂN THIỆN: Luôn khuyến khích, động viên, và tạo cảm giác thoải mái
 
-Lịch sử hội thoại:
-${historyText || "(chưa có lịch sử)"}
+CÁCH TRẢ LỜI:
+- Trả lời tự nhiên, không cần theo format cứng nhắc
+- Có thể có hoặc không có các phần như "Lưu ý", "Bài tập" tùy vào ngữ cảnh
+- Tập trung vào việc giúp học viên hiểu và học được điều gì đó
+- Nếu không biết, thành thật nói và đề xuất cách tìm hiểu thêm`;
 
-Câu hỏi mới của học viên:
-${content}
-    `.trim();
-
-    // 3. Gọi Gemini qua HTTP
+    // 3. Gọi Gemini với system instruction và conversation history
     let botText;
     try {
-      botText = await callGemini(prompt);
+      botText = await callGemini(systemPrompt, content, existingHistory);
     } catch (apiErr) {
+      console.error("Gemini API Error:", apiErr);
       botText =
-        "⚠️ Lỗi gọi Gemini API: " + (apiErr.message || "Không rõ nguyên nhân");
+        "⚠️ Xin lỗi, có lỗi xảy ra khi xử lý câu hỏi của bạn. Vui lòng thử lại sau hoặc hỏi câu hỏi khác.";
     }
 
     // 4. Lưu message bot
