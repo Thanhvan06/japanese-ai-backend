@@ -1,0 +1,11 @@
+import { Router } from "express";
+import { updateProfile, uploadAvatar } from "../controllers/profile.controller.js";
+import { auth } from "../middlewares/auth.js";
+
+const r = Router();
+
+// Update profile (cần authentication)
+r.put("/", auth(true), uploadAvatar, updateProfile);
+
+export default r;
+
