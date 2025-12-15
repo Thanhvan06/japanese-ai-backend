@@ -12,6 +12,7 @@ import {
   createSet,
   updateSet,
   deleteSet,
+  createSetFromVocab,
   // Cards
   getCards,
   createCard,
@@ -38,6 +39,7 @@ r.delete("/folders/:folderId", deleteFolder);
 r.get("/sets", getSets); // Có thể query ?folderId=123
 r.get("/sets/:setId", getSetById);
 r.post("/sets", createSet);
+r.post("/sets/from-vocab", createSetFromVocab); // Tạo set từ vocab selection
 r.put("/sets/:setId", updateSet);
 r.delete("/sets/:setId", deleteSet);
 

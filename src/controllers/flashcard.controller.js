@@ -658,3 +658,78 @@ export const getStudyStats = async (req, res, next) => {
   }
 };
 
+// ----- Create Flashcard Set from Vocab -----
+
+const createSetFromVocabSchema = z.object({
+  setName: z.string().min(1, "Tên set không được để trống").max(255),
+  vocabIds: z.array(z.number().int().positive()).min(1, "Phải chọn ít nhất 1 từ vựng"),
+  source: z.enum(["level", "topic"]).optional(),
+  folderId: z.union([z.number().int().positive(), z.null()]).optional()
+});
+
+// Tạo flashcard set từ vocab selection
+export const createSetFromVocab = async (req, res, next) => {
+  try {
+    const data = createSetFromVocabSchema.parse(req.body);
+
+    // Lấy vocab items
+    const vocabItems = await prisma.vocabitems.findMany({
+      where: {
+        vocab_id: { in: data.vocabIds },
+        is_published: true
+      }
+    });
+
+    if (vocabItems.length === 0) {
+      return res.status(400).json({ message: "Không tìm thấy từ vựng hợp lệ" });
+    }
+
+    // Kiểm tra folder nếu có
+    if (data.folderId) {
+      const folder = await prisma.fcfolders.findUnique({
+        where: { folder_id: data.folderId }
+      });
+
+      if (!folder || folder.user_id !== req.user.user_id) {
+        return res.status(404).json({ message: "Không tìm thấy folder" });
+      }
+    }
+
+    // Tạo set
+    const set = await prisma.fcsets.create({
+      data: {
+        user_id: req.user.user_id,
+        set_name: data.setName,
+        folder_id: data.folderId || null
+      }
+    });
+
+    // Tạo cards từ vocab items
+    const cards = await Promise.all(
+      vocabItems.map((vocab) =>
+        prisma.fccards.create({
+          data: {
+            set_id: set.set_id,
+            side_jp: vocab.word,
+            side_viet: vocab.meaning,
+            image_url: vocab.image_url || null,
+            mastery_level: 1
+          }
+        })
+      )
+    );
+
+    res.status(201).json({
+      set: {
+        ...set,
+        vocab_ids: data.vocabIds,
+        source: data.source || null,
+        card_count: cards.length
+      },
+      message: `Tạo flashcard set thành công với ${cards.length} thẻ`
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
