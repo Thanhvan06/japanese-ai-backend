@@ -2,7 +2,6 @@
   "name": "japanese-ai-backend",
   "version": "1.0.0",
   "type": "module",
-  "type": "module",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -27,6 +26,8 @@
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",
+    "microsoft-cognitiveservices-speech-sdk": "^1.47.0",
+    "multer": "^2.0.2",
     "openai": "^6.9.1",
     "zod": "^4.1.12"
   },
