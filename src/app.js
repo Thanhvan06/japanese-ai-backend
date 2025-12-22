@@ -7,6 +7,9 @@ import authRoutes from "./routes/auth.routes.js";
 import vocabRoutes from "./routes/vocab.routes.js";
 import topicRoutes from "./routes/topics.routes.js";
 import grammarRoutes from "./routes/grammar.routes.js";
+import searchRoutes from "./routes/search.routes.js";
+
+// import chatRoutes from "./routes/chat.routes.js";
 import profileRoutes from "./routes/profile.routes.js";
 import { errorHandler } from "./middlewares/error.js";
 import flashcardRoutes from "./routes/flashcard.routes.js";
@@ -37,6 +40,8 @@ app.use("/api/auth", authRoutes);
 app.use("/api/vocab", vocabRoutes);
 app.use("/api/topics", topicRoutes);
 app.use("/api/grammar", grammarRoutes);
+// app.use("/api/chat", chatRoutes);
+app.use("/api", searchRoutes);
 app.use("/api/profile", profileRoutes);
 app.use("/api/flashcards", flashcardRoutes);
 
