@@ -101,7 +101,7 @@ model fcsets {
   @@index([user_id], map: "idx_fcsets_user")
 }
 
-model grammarrules {
+model grammar {
   grammar_id        Int                     @id @default(autoincrement())
   rule_structure    String                  @db.VarChar(255)
   explanation_viet  String                  @db.Text
@@ -114,6 +114,27 @@ model grammarrules {
   @@index([jlpt_level], map: "idx_grammar_level")
   @@index([is_published], map: "idx_grammar_published")
   @@fulltext([rule_structure, explanation_viet, example_jp], map: "ftx_grammar_text")
+}
+
+model grammar_rules {
+  grammar_rule_id Int @id @default(autoincrement())
+
+  rule_code        String @db.VarChar(50)
+  rule_name_jp     String @db.VarChar(255)
+  rule_name_viet   String @db.VarChar(255)
+  pattern          String @db.VarChar(255)
+  error_pattern    String? @db.Text
+  correct_pattern  String @db.Text
+  explanation_viet String @db.Text
+  explanation_jp   String @db.Text
+
+  jlpt_level grammarrules_jlpt_level
+  category   grammar_rule_category
+  frequency  Int
+
+  @@index([jlpt_level], map: "idx_grammar_rules_level")
+  @@index([category], map: "idx_grammar_rules_category")
+  @@index([frequency], map: "idx_grammar_rules_frequency")
 }
 
 model systemstats {
@@ -133,7 +154,7 @@ model usergrammarstatus {
   grammar_id    Int
   mastery_level Int          @default(1) @db.TinyInt
   last_reviewed DateTime?    @db.Timestamp(0)
-  grammarrules  grammarrules @relation(fields: [grammar_id], references: [grammar_id], onDelete: Cascade, map: "fk_ugs_grammar")
+  grammar  grammar @relation(fields: [grammar_id], references: [grammar_id], onDelete: Cascade, map: "fk_ugs_grammar")
   users         users        @relation(fields: [user_id], references: [user_id], onDelete: Cascade, map: "fk_ugs_user")
 
   @@id([user_id, grammar_id])
@@ -227,4 +248,14 @@ enum vocabitems_jlpt_level {
   N3
   N2
   N1
+}
+
+enum grammar_rule_category {
+  PARTICLE
+  POLITE_FORM
+  VERB_CONJUGATION
+  TENSE
+  PASSIVE
+  CAUSATIVE
+  OTHER
 }

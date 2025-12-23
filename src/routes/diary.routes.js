@@ -5,11 +5,24 @@ import { createDiary, listDiaries, getDiary, updateDiary, deleteDiary, checkGram
 
 const router = Router();
 
-router.post("/", auth(true), uploadDiaryImages.array("images", 20), createDiary);
+// Wrapper to handle multer errors
+const handleMulterErrors = (multerMiddleware) => {
+  return (req, res, next) => {
+    multerMiddleware(req, res, (err) => {
+      if (err) {
+        // Multer errors are passed to error handler
+        return next(err);
+      }
+      next();
+    });
+  };
+};
+
+router.post("/", auth(true), handleMulterErrors(uploadDiaryImages.array("images", 20)), createDiary);
 router.post("/check-grammar", auth(true), checkGrammarDiary);
 router.get("/", auth(true), listDiaries);
 router.get("/:id", auth(true), getDiary);
-router.put("/:id", auth(true), uploadDiaryImages.array("images", 20), updateDiary);
+router.put("/:id", auth(true), handleMulterErrors(uploadDiaryImages.array("images", 20)), updateDiary);
 router.delete("/:id", auth(true), deleteDiary);
 
 export default router;

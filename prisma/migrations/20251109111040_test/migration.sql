@@ -43,6 +43,7 @@ CREATE TABLE `diaryentries` (
     `title` VARCHAR(255) NULL,
     `content_jp` TEXT NOT NULL,
     `image_url` VARCHAR(255) NULL,
+    `images` TEXT NULL,
     `nlp_analysis` LONGTEXT NULL,
     `created_at` TIMESTAMP(0) NOT NULL DEFAULT CURRENT_TIMESTAMP(0),
     `updated_at` TIMESTAMP(0) NOT NULL DEFAULT CURRENT_TIMESTAMP(0),
@@ -95,9 +96,9 @@ CREATE TABLE `fcsets` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `grammarrules` (
+CREATE TABLE `grammar` (
     `grammar_id` INTEGER NOT NULL AUTO_INCREMENT,
-    `rule_structure` VARCHAR(255) NOT NULL,
+    `grammar_structure` VARCHAR(255) NOT NULL,
     `explanation_viet` TEXT NOT NULL,
     `example_jp` TEXT NOT NULL,
     `example_viet` TEXT NULL,
@@ -106,8 +107,29 @@ CREATE TABLE `grammarrules` (
 
     INDEX `idx_grammar_level`(`jlpt_level`),
     INDEX `idx_grammar_published`(`is_published`),
-    FULLTEXT INDEX `ftx_grammar_text`(`rule_structure`, `explanation_viet`, `example_jp`),
+    FULLTEXT INDEX `ftx_grammar_text`(`grammar_structure`, `explanation_viet`, `example_jp`),
     PRIMARY KEY (`grammar_id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `grammar_rules` (
+    `grammar_rule_id` INTEGER NOT NULL AUTO_INCREMENT,
+    `rule_code` VARCHAR(50) NOT NULL,
+    `rule_name_jp` VARCHAR(255) NOT NULL,
+    `rule_name_viet` VARCHAR(255) NOT NULL,
+    `pattern` VARCHAR(255) NOT NULL,
+    `error_pattern` TEXT NULL,
+    `correct_pattern` TEXT NOT NULL,
+    `explanation_viet` TEXT NOT NULL,
+    `explanation_jp` TEXT NOT NULL,
+    `jlpt_level` ENUM('N5', 'N4', 'N3', 'N2', 'N1') NOT NULL,
+    `category` ENUM('PARTICLE', 'POLITE_FORM', 'VERB_CONJUGATION', 'TENSE', 'PASSIVE', 'CAUSATIVE', 'OTHER') NOT NULL,
+    `frequency` INTEGER NOT NULL,
+
+    INDEX `idx_grammar_rules_level`(`jlpt_level`),
+    INDEX `idx_grammar_rules_category`(`category`),
+    INDEX `idx_grammar_rules_frequency`(`frequency`),
+    PRIMARY KEY (`grammar_rule_id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
@@ -215,7 +237,7 @@ ALTER TABLE `fcsets` ADD CONSTRAINT `fk_fcsets_folder` FOREIGN KEY (`folder_id`)
 ALTER TABLE `fcsets` ADD CONSTRAINT `fk_fcsets_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`user_id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `usergrammarstatus` ADD CONSTRAINT `fk_ugs_grammar` FOREIGN KEY (`grammar_id`) REFERENCES `grammarrules`(`grammar_id`) ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE `usergrammarstatus` ADD CONSTRAINT `fk_ugs_grammar` FOREIGN KEY (`grammar_id`) REFERENCES `grammar`(`grammar_id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `usergrammarstatus` ADD CONSTRAINT `fk_ugs_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`user_id`) ON DELETE CASCADE ON UPDATE CASCADE;
