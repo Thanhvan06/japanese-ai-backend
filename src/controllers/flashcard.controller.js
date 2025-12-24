@@ -29,6 +29,41 @@ const studyAnswerSchema = z.object({
   correct: z.boolean()
 });
 
+const completeRoundSchema = z.object({
+  answers: z.array(
+    z.object({
+      cardId: z.number().int().positive(),
+      correct: z.boolean()
+    })
+  ).min(1, "Cần ít nhất 1 câu trả lời"),
+  durationSeconds: z.number().int().nonnegative().optional()
+});
+
+function normalizePlaylistConfig(raw) {
+  if (Array.isArray(raw)) {
+    return { playlist: raw, flashcard_rounds: {} };
+  }
+  return {
+    playlist: raw?.playlist ?? [],
+    flashcard_rounds: raw?.flashcard_rounds ?? {},
+  };
+}
+
+async function getOrCreateUserSettings(userId) {
+  let settings = await prisma.user_settings.findUnique({ where: { user_id: userId } });
+  if (!settings) {
+    settings = await prisma.user_settings.create({
+      data: {
+        user_id: userId,
+        theme_config: {},
+        todo_config: {},
+        playlist_config: { playlist: [], flashcard_rounds: {} },
+      },
+    });
+  }
+  return settings;
+}
+
 // ----- Folder Controllers -----
 
 // Lấy tất cả folders của user
@@ -134,11 +169,34 @@ export const getSets = async (req, res, next) => {
       orderBy: { created_at: "desc" }
     });
 
-    const setsWithCount = sets.map(set => ({
-      ...set,
-      card_count: set.fccards.length,
-      fccards: undefined // Ẩn chi tiết cards
-    }));
+    // Get completion status for each set
+    const setIds = sets.map(s => s.set_id);
+    const completedSessions = await prisma.flashcard_sessions.findMany({
+      where: {
+        user_id: req.user.user_id,
+        set_id: { in: setIds },
+        completed_at: { not: null },
+      },
+      select: {
+        set_id: true,
+      },
+      distinct: ["set_id"],
+    });
+    const completedSetIds = new Set(completedSessions.map(s => s.set_id));
+
+    const setsWithCount = sets.map(set => {
+      const hasCompletedRound = completedSetIds.has(set.set_id);
+      const allCardsMastered = set.fccards.length > 0 && 
+        set.fccards.every(card => (card.mastery_level || 1) >= 5);
+      const isCompleted = hasCompletedRound || allCardsMastered;
+
+      return {
+        ...set,
+        card_count: set.fccards.length,
+        is_completed: isCompleted,
+        fccards: undefined // Ẩn chi tiết cards
+      };
+    });
 
     res.json({ sets: setsWithCount });
   } catch (err) {
@@ -173,7 +231,24 @@ export const getSetById = async (req, res, next) => {
       return res.status(404).json({ message: "Không tìm thấy set" });
     }
 
-    res.json({ set });
+    // Get completion status
+    const hasCompletedRound = await prisma.flashcard_sessions.findFirst({
+      where: {
+        user_id: req.user.user_id,
+        set_id: setId,
+        completed_at: { not: null },
+      },
+    });
+    const allCardsMastered = set.fccards.length > 0 && 
+      set.fccards.every(card => (card.mastery_level || 1) >= 5);
+    const isCompleted = !!hasCompletedRound || allCardsMastered;
+
+    res.json({ 
+      set: {
+        ...set,
+        is_completed: isCompleted,
+      }
+    });
   } catch (err) {
     next(err);
   }
@@ -604,9 +679,43 @@ export const submitStudyAnswer = async (req, res, next) => {
       data: { mastery_level: newLevel }
     });
 
+    // Check if all cards are remembered (mastery_level >= 5) after this update
+    const allCards = await prisma.fccards.findMany({
+      where: { set_id: setId }
+    });
+
+    const allRemembered = allCards.length > 0 && allCards.every(c => c.mastery_level >= 5);
+    let completed = false;
+
+    if (allRemembered) {
+      // Mark set as completed by creating/updating flashcard_session
+      const existingSession = await prisma.flashcard_sessions.findFirst({
+        where: {
+          user_id: req.user.user_id,
+          set_id: setId,
+          completed_at: { not: null }
+        }
+      });
+
+      if (!existingSession) {
+        // Create a completion session if none exists
+        await prisma.flashcard_sessions.create({
+          data: {
+            user_id: req.user.user_id,
+            set_id: setId,
+            remembered_count: allCards.length,
+            not_remembered_count: 0,
+            completed_at: new Date()
+          }
+        });
+      }
+      completed = true;
+    }
+
     res.json({
       card_id: updatedCard.card_id,
       mastery_level: updatedCard.mastery_level,
+      completed: completed,
       message: data.correct ? "Chúc mừng! Bạn đã trả lời đúng" : "Chưa đúng, cố gắng lần sau nhé!"
     });
   } catch (err) {
@@ -733,3 +842,237 @@ export const createSetFromVocab = async (req, res, next) => {
   }
 };
 
+
+// ----- Study Round (per round only) -----
+async function persistRoundState(userId, setId, payload) {
+  const settings = await getOrCreateUserSettings(userId);
+  const playlistConfig = normalizePlaylistConfig(settings.playlist_config);
+  const flashcardRounds = playlistConfig.flashcard_rounds ?? {};
+  flashcardRounds[setId] = payload;
+
+  await prisma.user_settings.update({
+    where: { user_id: userId },
+    data: {
+      playlist_config: {
+        playlist: playlistConfig.playlist ?? [],
+        flashcard_rounds: flashcardRounds,
+      },
+    },
+  });
+}
+
+export const completeStudyRound = async (req, res, next) => {
+  try {
+    const setId = parseInt(req.params.setId);
+    const body = completeRoundSchema.parse(req.body);
+    const userId = req.user.user_id;
+
+    const set = await prisma.fcsets.findFirst({
+      where: { set_id: setId, user_id: userId },
+      include: { fccards: true },
+    });
+    if (!set) {
+      return res.status(404).json({ message: "Không tìm thấy set" });
+    }
+
+    const cardIds = set.fccards.map((c) => c.card_id);
+    const uniqueAnswerIds = new Set(body.answers.map((a) => a.cardId));
+    const missingCards = cardIds.filter((id) => !uniqueAnswerIds.has(id));
+    if (missingCards.length > 0) {
+      return res.status(400).json({ message: "Phải gửi kết quả cho toàn bộ thẻ trong set" });
+    }
+
+    const cardLookup = new Set(cardIds);
+    let rememberedCount = 0;
+    let notRememberedCount = 0;
+    const rememberedList = [];
+    const notRememberedList = [];
+
+    body.answers.forEach((ans) => {
+      if (!cardLookup.has(ans.cardId)) {
+        return;
+      }
+      if (ans.correct) {
+        rememberedCount += 1;
+        rememberedList.push(ans.cardId);
+      } else {
+        notRememberedCount += 1;
+        notRememberedList.push(ans.cardId);
+      }
+    });
+
+    const totalCards = cardIds.length;
+    notRememberedCount = Math.max(notRememberedCount, totalCards - rememberedCount);
+
+    const flashSession = await prisma.flashcard_sessions.create({
+      data: {
+        user_id: userId,
+        set_id: setId,
+        remembered_count: rememberedCount,
+        not_remembered_count: notRememberedCount,
+      },
+    });
+
+    if (body.durationSeconds !== undefined) {
+      const now = new Date();
+      const start = new Date(now.getTime() - body.durationSeconds * 1000);
+      await prisma.study_sessions.create({
+        data: {
+          user_id: userId,
+          source: "flashcard",
+          source_id: setId,
+          start_time: start,
+          end_time: now,
+          duration_seconds: body.durationSeconds,
+        },
+      });
+    }
+
+    await persistRoundState(userId, setId, {
+      round_id: flashSession.session_id,
+      completed_at: flashSession.completed_at ?? new Date(),
+      total_cards: totalCards,
+      remembered_count: rememberedCount,
+      not_remembered_count: notRememberedCount,
+      tabs: {
+        all: cardIds,
+        remembered: rememberedList,
+        not_remembered: notRememberedList.length > 0 ? notRememberedList : cardIds.filter((id) => !rememberedList.includes(id)),
+      },
+    });
+
+    res.status(201).json({
+      round: {
+        round_id: flashSession.session_id,
+        set_id: setId,
+        total_cards: totalCards,
+        remembered_count: rememberedCount,
+        not_remembered_count: notRememberedCount,
+        completed_at: flashSession.completed_at,
+      },
+      chart: {
+        slices: {
+          remembered: rememberedCount,
+          not_remembered: notRememberedCount,
+        },
+      },
+      actions: {
+        continue_learning: true,
+        reset_progress: true,
+      },
+      tabs: {
+        all: cardIds,
+        remembered: rememberedList,
+        not_remembered: notRememberedList.length > 0 ? notRememberedList : cardIds.filter((id) => !rememberedList.includes(id)),
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const getLastStudyRound = async (req, res, next) => {
+  try {
+    const setId = parseInt(req.params.setId);
+    const userId = req.user.user_id;
+
+    const set = await prisma.fcsets.findFirst({
+      where: { set_id: setId, user_id: userId },
+      include: { fccards: true },
+    });
+    if (!set) {
+      return res.status(404).json({ message: "Không tìm thấy set" });
+    }
+
+    const latest = await prisma.flashcard_sessions.findFirst({
+      where: { user_id: userId, set_id: setId },
+      orderBy: { completed_at: "desc" },
+    });
+
+    const settings = await getOrCreateUserSettings(userId);
+    const playlistConfig = normalizePlaylistConfig(settings.playlist_config);
+    const flashRound = playlistConfig.flashcard_rounds?.[setId] ?? {};
+
+    if (!latest || !flashRound.round_id) {
+      return res.json({
+        round: {},
+        chart: { slices: { remembered: 0, not_remembered: 0 } },
+        tabs: { all: [], remembered: [], not_remembered: [] },
+        actions: { continue_learning: false, reset_progress: false },
+      });
+    }
+
+    res.json({
+      round: {
+        round_id: flashRound.round_id,
+        set_id: setId,
+        total_cards: flashRound.total_cards ?? set.fccards.length,
+        remembered_count: latest.remembered_count,
+        not_remembered_count: latest.not_remembered_count,
+        completed_at: flashRound.completed_at ?? latest.completed_at,
+      },
+      chart: {
+        slices: {
+          remembered: latest.remembered_count,
+          not_remembered: latest.not_remembered_count,
+        },
+      },
+      tabs: flashRound.tabs ?? {
+        all: set.fccards.map((c) => c.card_id),
+        remembered: [],
+        not_remembered: [],
+      },
+      actions: { continue_learning: true, reset_progress: true },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const resetStudyRound = async (req, res, next) => {
+  try {
+    const setId = parseInt(req.params.setId);
+    const userId = req.user.user_id;
+
+    const set = await prisma.fcsets.findFirst({
+      where: { set_id: setId, user_id: userId },
+    });
+    if (!set) {
+      return res.status(404).json({ message: "Không tìm thấy set" });
+    }
+
+    await prisma.flashcard_sessions.deleteMany({
+      where: { user_id: userId, set_id: setId },
+    });
+
+    await prisma.fccards.updateMany({
+      where: { set_id: setId },
+      data: { mastery_level: 1 },
+    });
+
+    const settings = await getOrCreateUserSettings(userId);
+    const playlistConfig = normalizePlaylistConfig(settings.playlist_config);
+    if (playlistConfig.flashcard_rounds) {
+      delete playlistConfig.flashcard_rounds[setId];
+    }
+    await prisma.user_settings.update({
+      where: { user_id: userId },
+      data: {
+        playlist_config: {
+          playlist: playlistConfig.playlist ?? [],
+          flashcard_rounds: playlistConfig.flashcard_rounds ?? {},
+        },
+      },
+    });
+
+    res.json({
+      round: {},
+      chart: { slices: { remembered: 0, not_remembered: 0 } },
+      tabs: { all: [], remembered: [], not_remembered: [] },
+      actions: { continue_learning: false, reset_progress: false },
+      message: "Đã xóa tiến trình học của set",
+    });
+  } catch (err) {
+    next(err);
+  }
+};

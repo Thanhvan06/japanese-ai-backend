@@ -4,6 +4,7 @@ import { z } from "zod";
 import crypto from "crypto";
 import { prisma } from "../prisma.js";
 import { sendPasswordResetEmail } from "../services/email.service.js";
+import { getPersonalRoomStateForUser } from "./personalRoom.controller.js";
 
 // ----- Schemas -----
 const registerSchema = z.object({
@@ -106,8 +107,9 @@ export const login = async (req, res, next) => {
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
+    const personal_room = await getPersonalRoomStateForUser(user.user_id);
 
-    res.json({ user: toPublicUser(user), token });
+    res.json({ user: toPublicUser(user), token, personal_room });
   } catch (err) {
     next(err);
   }
@@ -120,7 +122,8 @@ export const me = async (req, res, next) => {
       where: { user_id: req.user.user_id }
     });
     if (!u) return res.status(404).json({ message: "Không tìm thấy người dùng" });
-    res.json({ user: toPublicUser(u) });
+    const personal_room = await getPersonalRoomStateForUser(u.user_id);
+    res.json({ user: toPublicUser(u), personal_room });
   } catch (err) {
     next(err);
   }

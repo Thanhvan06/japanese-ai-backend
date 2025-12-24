@@ -22,7 +22,10 @@ import {
   startStudy,
   getCardAnswer,
   submitStudyAnswer,
-  getStudyStats
+  getStudyStats,
+  completeStudyRound,
+  getLastStudyRound,
+  resetStudyRound
 } from "../controllers/flashcard.controller.js";
 
 const r = Router();
@@ -54,6 +57,9 @@ r.get("/sets/:setId/study", startStudy); // Có thể query ?mode=all|not-master
 r.get("/sets/:setId/study/cards/:cardId/answer", getCardAnswer);
 r.post("/sets/:setId/study/answer", submitStudyAnswer);
 r.get("/sets/:setId/stats", getStudyStats);
+r.post("/sets/:setId/study/round/complete", completeStudyRound);
+r.get("/sets/:setId/study/round/last", getLastStudyRound);
+r.post("/sets/:setId/study/round/reset", resetStudyRound);
 
 export default r;
 

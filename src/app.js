@@ -13,6 +13,7 @@ import searchRoutes from "./routes/search.routes.js";
 import profileRoutes from "./routes/profile.routes.js";
 import { errorHandler } from "./middlewares/error.js";
 import flashcardRoutes from "./routes/flashcard.routes.js";
+import personalRoomRoutes from "./routes/personalRoom.routes.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -44,6 +45,7 @@ app.use("/api/grammar", grammarRoutes);
 app.use("/api", searchRoutes);
 app.use("/api/profile", profileRoutes);
 app.use("/api/flashcards", flashcardRoutes);
+app.use("/api/personal-room", personalRoomRoutes);
 
 app.use(errorHandler);
 

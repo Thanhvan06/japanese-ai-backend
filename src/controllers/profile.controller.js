@@ -68,6 +68,12 @@ const updateProfileSchema = z.object({
   path: ["oldPassword"],
 });
 
+const studyPlanSchema = z.object({
+  start_date: z.string(),
+  end_date: z.string(),
+  target_level: z.enum(["N5", "N4", "N3", "N2", "N1"]),
+});
+
 // Ẩn trường nhạy cảm (giống auth.controller)
 function toPublicUser(u) {
   return {
@@ -156,6 +162,164 @@ export const updateProfile = async (req, res, next) => {
     });
 
     res.json({ user: toPublicUser(updatedUser), message: "Cập nhật profile thành công" });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ message: err.errors[0].message });
+    }
+    next(err);
+  }
+};
+
+export const createStudyPlan = async (req, res, next) => {
+  try {
+    const userId = req.user.user_id;
+    const payload = studyPlanSchema.parse(req.body);
+
+    const startDate = new Date(payload.start_date);
+    const endDate = new Date(payload.end_date);
+    startDate.setHours(0, 0, 0, 0);
+    endDate.setHours(0, 0, 0, 0);
+
+    if (isNaN(startDate) || isNaN(endDate)) {
+      return res.status(400).json({ message: "Ngày bắt đầu/kết thúc không hợp lệ" });
+    }
+    if (startDate > endDate) {
+      return res.status(400).json({ message: "Ngày bắt đầu phải trước hoặc bằng ngày kết thúc" });
+    }
+
+    const totalVocab = await prisma.vocabitems.count({
+      where: { jlpt_level: payload.target_level, is_published: true },
+    });
+
+    const dayCount =
+      Math.floor((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+
+    const wordsPerDay =
+      dayCount > 0
+        ? (totalVocab === 0 ? 0 : Math.ceil(totalVocab / dayCount))
+        : 0;
+
+    const existingPlans = await prisma.study_plans.findMany({
+      where: { user_id: userId },
+      select: { plan_id: true },
+    });
+
+    await prisma.$transaction(async (tx) => {
+      if (existingPlans.length > 0) {
+        const planIds = existingPlans.map((p) => p.plan_id);
+        await tx.study_plan_items.deleteMany({ where: { plan_id: { in: planIds } } });
+        await tx.study_plans.deleteMany({ where: { plan_id: { in: planIds } } });
+      }
+    });
+
+    const plan = await prisma.study_plans.create({
+      data: {
+        user_id: userId,
+        start_date: startDate,
+        end_date: endDate,
+        target_level: payload.target_level,
+        words_per_day: wordsPerDay,
+      },
+    });
+
+    const base = dayCount > 0 ? Math.floor(totalVocab / dayCount) : 0;
+    let remainder = dayCount > 0 ? totalVocab % dayCount : 0;
+    const itemsData = [];
+    for (let i = 0; i < dayCount; i += 1) {
+      const studyDate = new Date(startDate);
+      studyDate.setDate(startDate.getDate() + i);
+      const dailyCount = wordsPerDay === 0 ? 0 : base + (remainder > 0 ? 1 : 0);
+      if (remainder > 0) remainder -= 1;
+      itemsData.push({
+        plan_id: plan.plan_id,
+        study_date: studyDate,
+        required_vocab_count: dailyCount,
+      });
+    }
+
+    const items = await prisma.$transaction(async (tx) => {
+      if (itemsData.length === 0) return [];
+      return tx.study_plan_items.createMany({
+        data: itemsData,
+      }).then(() => itemsData);
+    });
+
+    // Auto-generate flashcard sets for each day's vocab
+    const generatedSets = [];
+    if (items.length > 0 && totalVocab > 0) {
+      // Get all vocab items for the target level
+      const allVocabItems = await prisma.vocabitems.findMany({
+        where: {
+          jlpt_level: payload.target_level,
+          is_published: true,
+        },
+        orderBy: { vocab_id: "asc" },
+      });
+
+      if (allVocabItems.length > 0) {
+        let vocabIndex = 0;
+        for (let i = 0; i < items.length; i += 1) {
+          const item = items[i];
+          const requiredCount = item.required_vocab_count || 0;
+          
+          if (requiredCount > 0 && vocabIndex < allVocabItems.length) {
+            // Get vocab items for this day
+            const dayVocab = allVocabItems.slice(vocabIndex, vocabIndex + requiredCount);
+            vocabIndex += requiredCount;
+
+            if (dayVocab.length > 0) {
+              // Format date for set name
+              const studyDate = new Date(item.study_date);
+              const dateStr = studyDate.toLocaleDateString("vi-VN", {
+                day: "2-digit",
+                month: "2-digit",
+                year: "numeric",
+              });
+
+              // Create flashcard set
+              const flashcardSet = await prisma.fcsets.create({
+                data: {
+                  user_id: userId,
+                  set_name: `Kế hoạch học ${payload.target_level} - Ngày ${i + 1} (${dateStr})`,
+                  folder_id: null,
+                },
+              });
+
+              // Create cards from vocab items
+              await prisma.fccards.createMany({
+                data: dayVocab.map((vocab) => ({
+                  set_id: flashcardSet.set_id,
+                  side_jp: vocab.word,
+                  side_viet: vocab.meaning,
+                  image_url: vocab.image_url || null,
+                  mastery_level: 1,
+                })),
+              });
+
+              generatedSets.push({
+                set_id: flashcardSet.set_id,
+                set_name: flashcardSet.set_name,
+                card_count: dayVocab.length,
+                study_date: item.study_date,
+              });
+            }
+          }
+        }
+      }
+    }
+
+    res.status(201).json({
+      plan: {
+        plan_id: plan.plan_id,
+        start_date: plan.start_date,
+        end_date: plan.end_date,
+        target_level: plan.target_level,
+        words_per_day: wordsPerDay,
+        total_vocab: totalVocab,
+      },
+      items: items ?? [],
+      generated_sets: generatedSets,
+    });
   } catch (err) {
     if (err instanceof z.ZodError) {
       return res.status(400).json({ message: err.errors[0].message });
