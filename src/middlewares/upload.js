@@ -1,6 +1,7 @@
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import { fileURLToPath } from "url";
 
 function ensureDir(dir) { if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true }); }
 
@@ -20,10 +21,8 @@ export const uploadCover = multer({ storage: makeStorage("diary_covers") });
 export const uploadImage = multer({ storage: makeStorage("diary_images") });
 export const uploadDiaryImages = multer({ 
   storage: makeStorage("diary_images"),
-  limits: { fileSize: 10 * 1024 * 1024 } // 10MB per file
+  limits: { fileSize: 10 * 1024 * 1024 } 
 });
-import { fileURLToPath } from "url";
-import fs from "fs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

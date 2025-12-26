@@ -2,7 +2,6 @@ import path from "path";
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import path from "path";
 import { fileURLToPath } from "url";
 import authRoutes from "./routes/auth.routes.js";
 import diaryRoutes from "./routes/diary.routes.js";
