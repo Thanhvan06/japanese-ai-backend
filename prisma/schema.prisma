@@ -274,6 +274,8 @@ model users {
   is_active                        Boolean              @default(true)
   last_login                       DateTime?            @db.Timestamp(0)
   created_at                       DateTime             @default(now()) @db.Timestamp(0)
+  reset_token                      String?              @db.VarChar(255)
+  reset_token_expires              DateTime?            @db.DateTime(0)
   admins_admins_assigned_byTousers admins[]             @relation("admins_assigned_byTousers")
   admins_admins_user_idTousers     admins?              @relation("admins_user_idTousers")
   chatsessions                     chatsessions[]
@@ -291,7 +293,6 @@ model users {
   @@index([created_at], map: "idx_users_created_at")
   @@index([is_active], map: "idx_users_is_active")
   @@index([last_login], map: "idx_users_last_login")
-  @@index([reset_token], map: "idx_users_reset_token")
 }
 
 model uservocabstatus {
