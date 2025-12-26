@@ -10,6 +10,7 @@ import grammarRoutes from "./routes/grammar.routes.js";
 import chatRoutes from "./routes/chat.routes.js";
 import listeningRoutes from "./routes/listening.routes.js";
 import searchRoutes from "./routes/search.routes.js";
+import adminRoutes from "./routes/admin.routes.js";
 import { errorHandler } from "./middlewares/error.js";
 
 dotenv.config();
@@ -42,6 +43,7 @@ app.use("/api/grammar", grammarRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api/listening", listeningRoutes);
 app.use("/api", searchRoutes);
+app.use("/api/admin", adminRoutes);
 
 app.use(errorHandler);
 

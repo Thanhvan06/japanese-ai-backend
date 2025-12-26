@@ -22,7 +22,7 @@ function toPublicUser(u) {
     email: u.email,
     display_name: u.display_name,
     avatar_url: u.avatar_url ?? null,
-    jlpt_level: u.jlpt_level ?? null,
+    role: u.role ?? "user",
     is_active: u.is_active,
     created_at: u.created_at
   };
@@ -53,7 +53,7 @@ export const register = async (req, res, next) => {
 
     // có thể auto đăng nhập sau khi đăng ký
     const token = jwt.sign(
-      { user_id: user.user_id, email: user.email },
+      { user_id: user.user_id, email: user.email, role: user.role ?? "user" },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
@@ -91,7 +91,7 @@ export const login = async (req, res, next) => {
     });
 
     const token = jwt.sign(
-      { user_id: user.user_id, email: user.email },
+      { user_id: user.user_id, email: user.email, role: user.role ?? "user" },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );

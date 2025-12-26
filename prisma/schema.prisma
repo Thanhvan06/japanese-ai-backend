@@ -19,6 +19,18 @@ model admins {
   @@index([assigned_by], map: "fk_admins_assigned_by")
 }
 
+model admin_audit {
+  audit_id      Int      @id @default(autoincrement())
+  admin_user_id Int
+  target_user_id Int?
+  action        String
+  details       String?   @db.LongText
+  created_at    DateTime  @default(now()) @db.Timestamp(0)
+  admin_user    users     @relation(fields: [admin_user_id], references: [user_id], map: "fk_audit_admin")
+  @@index([admin_user_id], map: "idx_audit_admin")
+  @@index([target_user_id], map: "idx_audit_target")
+}
+
 model chatmessages {
   message_id   Int                      @id @default(autoincrement())
   session_id   Int
@@ -145,13 +157,14 @@ model users {
   email                            String               @unique(map: "email") @db.VarChar(255)
   password_hash                    String               @db.Char(60)
   display_name                     String               @db.VarChar(100)
+  role                             users_role           @default(user)
   avatar_url                       String?              @db.VarChar(255)
-  jlpt_level                       users_jlpt_level?
   is_active                        Boolean              @default(true)
   last_login                       DateTime?            @db.Timestamp(0)
   created_at                       DateTime             @default(now()) @db.Timestamp(0)
   admins_admins_assigned_byTousers admins[]             @relation("admins_assigned_byTousers")
   admins_admins_user_idTousers     admins?              @relation("admins_user_idTousers")
+  admin_audits                      admin_audit[]
   chatsessions                     chatsessions[]
   diaryentries                     diaryentries[]
   fcfolders                        fcfolders[]
@@ -288,4 +301,9 @@ enum listening_sets_jlpt_level {
 enum listening_sets_type {
   point
   response
+}
+
+enum users_role {
+  user
+  admin
 }
