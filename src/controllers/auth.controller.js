@@ -75,8 +75,9 @@ export const login = async (req, res, next) => {
       return res.status(401).json({ message: "Email hoặc mật khẩu không đúng" });
     }
 
-    if (user.is_active === false) {
-      return res.status(403).json({ message: "Tài khoản đã bị vô hiệu hóa" });
+    // Kiểm tra tài khoản có bị vô hiệu hóa không
+    if (!user.is_active) {
+      return res.status(403).json({ message: "Tài khoản đã bị vô hiệu hóa. Vui lòng liên hệ quản trị viên." });
     }
 
     const ok = await bcrypt.compare(data.password, user.password_hash);
@@ -90,13 +91,23 @@ export const login = async (req, res, next) => {
       data: { last_login: new Date() }
     });
 
+    // Lấy adminRole nếu user là admin
+    const adminRec = await prisma.admins.findUnique({
+      where: { user_id: user.user_id }
+    });
+
     const token = jwt.sign(
       { user_id: user.user_id, email: user.email, role: user.role ?? "user" },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
 
-    res.json({ user: toPublicUser(user), token });
+    const publicUser = toPublicUser(user);
+    if (adminRec) {
+      publicUser.adminRole = adminRec.role;
+    }
+
+    res.json({ user: publicUser, token });
   } catch (err) {
     next(err);
   }
@@ -109,7 +120,18 @@ export const me = async (req, res, next) => {
       where: { user_id: req.user.user_id }
     });
     if (!u) return res.status(404).json({ message: "Không tìm thấy người dùng" });
-    res.json({ user: toPublicUser(u) });
+    
+    // Lấy adminRole nếu user là admin
+    const adminRec = await prisma.admins.findUnique({
+      where: { user_id: u.user_id }
+    });
+    
+    const publicUser = toPublicUser(u);
+    if (adminRec) {
+      publicUser.adminRole = adminRec.role;
+    }
+    
+    res.json({ user: publicUser });
   } catch (err) {
     next(err);
   }
