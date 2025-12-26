@@ -6,9 +6,6 @@ const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "japanese-corrector";
 const KUROMOJI_DICT =
   process.env.KUROMOJI_DICT_PATH || "node_modules/kuromoji/dict";
 
-/* =====================================================
-   KUROMOJI TOKENIZER
-===================================================== */
 let tokenizerPromise = null;
 
 function getTokenizer() {
@@ -38,9 +35,6 @@ async function tokenizeWithFurigana(text) {
   }
 }
 
-/* =====================================================
-   DB GRAMMAR RULES (FALLBACK ONLY)
-===================================================== */
 async function getGrammarRulesFromDB() {
   try {
     const rules = await prisma.grammar_rules.findMany({
@@ -79,9 +73,6 @@ async function checkGrammarWithDB(text) {
   return errors;
 }
 
-/* =====================================================
-   OLLAMA CALL (NO SYSTEM OVERRIDE)
-===================================================== */
 async function callOllama(messages) {
   const res = await fetch(`${OLLAMA_URL}/api/chat`, {
     method: "POST",
@@ -108,9 +99,6 @@ async function callOllama(messages) {
   return data.message?.content || "";
 }
 
-/* =====================================================
-   SAFE JSON PARSE (MINIMAL)
-===================================================== */
 function safeJsonParse(text, fallback) {
   try {
     const cleaned = text.replace(/```json|```/g, "").trim();
@@ -120,9 +108,6 @@ function safeJsonParse(text, fallback) {
   }
 }
 
-/* =====================================================
-   CHECK GRAMMAR (AI FIRST, DB FALLBACK)
-===================================================== */
 export async function checkGrammar(text) {
   if (!text?.trim()) {
     return { errors: [], furigana: [] };
@@ -131,13 +116,12 @@ export async function checkGrammar(text) {
   /* Furigana */
   const furigana = await tokenizeWithFurigana(text);
 
-  /* ================= AI CHECK ================= */
   let aiErrors = [];
   try {
     const content = await callOllama([
       {
         role: "user",
-        content: text, // ⚠️ RAW TEXT ONLY
+        content: text,
       },
     ]);
 
@@ -147,7 +131,6 @@ export async function checkGrammar(text) {
     console.error("AI grammar check failed:", err);
   }
 
-  /* ================= DB FALLBACK ================= */
   let finalErrors = aiErrors;
 
   if (!finalErrors || finalErrors.length === 0) {
@@ -159,15 +142,31 @@ export async function checkGrammar(text) {
     }
   }
 
+  const validErrors = finalErrors
+    .filter(e => {
+      if (!e.original_word || !Array.isArray(e.suggestions)) return false;
+      
+      const word = e.original_word.trim();
+      const validSuggestions = e.suggestions.filter(
+        s => typeof s === "string" && s.trim() !== word
+      );
+      
+      return validSuggestions.length > 0;
+    })
+    .map(e => ({
+      original_word: e.original_word.trim(),
+      suggestions: e.suggestions
+        .filter(s => typeof s === "string" && s.trim() !== e.original_word.trim())
+        .slice(0, 2),
+      rule_code: e.rule_code || null,
+    }));
+
   return {
-    errors: finalErrors,
+    errors: validErrors,
     furigana,
   };
 }
 
-/* =====================================================
-   AUTO CORRECT (CORRECTION MODE)
-===================================================== */
 export async function correctJapanese(text) {
   if (!text?.trim()) {
     return { corrected: "", notes: [], furigana: [] };
