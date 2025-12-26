@@ -66,7 +66,7 @@ model fccards {
   set_id        Int
   side_jp       String  @db.Text
   side_viet     String  @db.Text
-  image_url     String? @db.VarChar(255)
+  image_url     String? @db.Text
   mastery_level Int     @default(1) @db.TinyInt
   fcsets        fcsets  @relation(fields: [set_id], references: [set_id], onDelete: Cascade, map: "fk_fccards_set")
 
@@ -85,35 +85,130 @@ model fcfolders {
 }
 
 model fcsets {
-  set_id          Int        @id @default(autoincrement())
-  user_id         Int
-  folder_id       Int?
-  set_name        String     @db.VarChar(255)
-  times_practiced Int        @default(0)
-  created_at      DateTime   @default(now()) @db.Timestamp(0)
-  fccards         fccards[]
-  fcfolders       fcfolders? @relation(fields: [folder_id], references: [folder_id], map: "fk_fcsets_folder")
-  users           users      @relation(fields: [user_id], references: [user_id], onDelete: Cascade, map: "fk_fcsets_user")
+  set_id             Int                  @id @default(autoincrement())
+  user_id            Int
+  folder_id          Int?
+  set_name           String               @db.VarChar(255)
+  created_at         DateTime             @default(now()) @db.Timestamp(0)
+  fccards            fccards[]
+  fcfolders          fcfolders?           @relation(fields: [folder_id], references: [folder_id], map: "fk_fcsets_folder")
+  users              users                @relation(fields: [user_id], references: [user_id], onDelete: Cascade, map: "fk_fcsets_user")
+  flashcard_sessions flashcard_sessions[]
 
   @@index([created_at], map: "idx_fcsets_created_at")
   @@index([folder_id], map: "idx_fcsets_folder")
-  @@index([times_practiced], map: "idx_fcsets_times")
   @@index([user_id], map: "idx_fcsets_user")
 }
 
+model flashcard_sessions {
+  session_id           Int       @id @default(autoincrement())
+  user_id              Int
+  set_id               Int
+  remembered_count     Int
+  not_remembered_count Int
+  completed_at         DateTime? @default(now()) @db.Timestamp(0)
+  fcsets               fcsets    @relation(fields: [set_id], references: [set_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_flashcard_sessions_set")
+  users                users     @relation(fields: [user_id], references: [user_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_flashcard_sessions_user")
+
+  @@index([set_id], map: "fk_flashcard_sessions_set")
+  @@index([user_id, set_id, completed_at], map: "idx_flashcard_last")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model gram_exercise_options {
+  id          Int                               @id @default(autoincrement())
+  option_id   Int
+  exercise_id Int
+  option_text String                            @db.VarChar(255)
+  option_role gram_exercise_options_option_role @default(choice)
+  is_correct  Boolean?                          @default(false)
+  sort_order  Int?
+  created_at  DateTime?                         @default(now()) @db.Timestamp(0)
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model gram_exercises {
+  id               Int                             @id @default(autoincrement())
+  exercise_id      Int
+  grammar_id       Int
+  question_type    gram_exercises_question_type
+  question_text    String                          @db.Text
+  question_suffix  String?                         @db.Text
+  explanation_note String?                         @db.Text
+  difficulty_level gram_exercises_difficulty_level
+  is_active        Boolean                         @default(true)
+  created_at       DateTime?                       @default(now()) @db.Timestamp(0)
+}
+
 model grammar {
-  grammar_id        Int                     @id @default(autoincrement())
-  rule_structure    String                  @db.VarChar(255)
-  explanation_viet  String                  @db.Text
-  example_jp        String                  @db.Text
-  example_viet      String?                 @db.Text
-  jlpt_level        grammarrules_jlpt_level
-  is_published      Boolean                 @default(false)
+  grammar_id        Int                 @id @default(autoincrement())
+  grammar_structure String              @db.VarChar(255)
+  explanation_viet  String              @db.Text
+  example_jp        String              @db.Text
+  example_viet      String?             @db.Text
+  jlpt_level        grammar_jlpt_level
+  is_published      Boolean             @default(false)
   usergrammarstatus usergrammarstatus[]
 
   @@index([jlpt_level], map: "idx_grammar_level")
   @@index([is_published], map: "idx_grammar_published")
-  @@fulltext([rule_structure, explanation_viet, example_jp], map: "ftx_grammar_text")
+  @@fulltext([grammar_structure, explanation_viet, example_jp], map: "ftx_grammar_text")
+}
+
+model grammar_rules {
+  grammar_rule_id  Int                      @id @default(autoincrement())
+  rule_code        String                   @db.VarChar(50)
+  rule_name_jp     String                   @db.VarChar(255)
+  rule_name_viet   String                   @db.VarChar(255)
+  pattern          String                   @db.VarChar(255)
+  error_pattern    String?                  @db.Text
+  correct_pattern  String                   @db.Text
+  explanation_viet String                   @db.Text
+  explanation_jp   String                   @db.Text
+  jlpt_level       grammar_rules_jlpt_level
+  category         grammar_rules_category
+  frequency        Int
+
+  @@index([category], map: "idx_grammar_rules_category")
+  @@index([frequency], map: "idx_grammar_rules_frequency")
+  @@index([jlpt_level], map: "idx_grammar_rules_level")
+}
+
+model study_plan_items {
+  item_id              Int         @id @default(autoincrement())
+  plan_id              Int
+  study_date           DateTime    @db.Date
+  required_vocab_count Int
+  study_plans          study_plans @relation(fields: [plan_id], references: [plan_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_plan_items_plan")
+
+  @@unique([plan_id, study_date], map: "uq_plan_date")
+}
+
+model study_plans {
+  plan_id          Int                      @id @default(autoincrement())
+  user_id          Int
+  start_date       DateTime                 @db.Date
+  end_date         DateTime                 @db.Date
+  target_level     study_plans_target_level
+  words_per_day    Int
+  created_at       DateTime?                @default(now()) @db.Timestamp(0)
+  study_plan_items study_plan_items[]
+  users            users                    @relation(fields: [user_id], references: [user_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_study_plans_user")
+
+  @@index([user_id], map: "fk_study_plans_user")
+}
+
+model study_sessions {
+  session_id       Int                   @id @default(autoincrement())
+  user_id          Int
+  source           study_sessions_source
+  source_id        Int?
+  start_time       DateTime              @db.Timestamp(0)
+  end_time         DateTime              @db.Timestamp(0)
+  duration_seconds Int
+  users            users                 @relation(fields: [user_id], references: [user_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_study_sessions_user")
+
+  @@index([user_id, start_time], map: "idx_study_user_time")
 }
 
 model grammar_rules {
@@ -149,13 +244,41 @@ model systemstats {
   total_published_grammar Int
 }
 
+model todos {
+  todo_id           Int           @id @default(autoincrement())
+  user_id           Int
+  title             String        @db.VarChar(255)
+  expected_duration Int?
+  status            todos_status? @default(pending)
+  created_at        DateTime?     @default(now()) @db.Timestamp(0)
+  users             users         @relation(fields: [user_id], references: [user_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_todos_user")
+
+  @@index([user_id], map: "fk_todos_user")
+}
+
+model topics {
+  topic_id   Int          @id @default(autoincrement())
+  topic_name String       @unique @db.VarChar(255)
+  vocabitems vocabitems[]
+}
+
+model user_settings {
+  user_id         Int       @id
+  theme_config    Json
+  todo_config     Json
+  playlist_config Json
+  created_at      DateTime? @default(now()) @db.Timestamp(0)
+  updated_at      DateTime? @default(now()) @db.Timestamp(0)
+  users           users     @relation(fields: [user_id], references: [user_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_user_settings_user")
+}
+
 model usergrammarstatus {
   user_id       Int
   grammar_id    Int
-  mastery_level Int          @default(1) @db.TinyInt
-  last_reviewed DateTime?    @db.Timestamp(0)
-  grammar  grammar @relation(fields: [grammar_id], references: [grammar_id], onDelete: Cascade, map: "fk_ugs_grammar")
-  users         users        @relation(fields: [user_id], references: [user_id], onDelete: Cascade, map: "fk_ugs_user")
+  mastery_level Int       @default(1) @db.TinyInt
+  last_reviewed DateTime? @db.Timestamp(0)
+  grammar       grammar   @relation(fields: [grammar_id], references: [grammar_id], onDelete: Cascade, map: "fk_ugs_grammar")
+  users         users     @relation(fields: [user_id], references: [user_id], onDelete: Cascade, map: "fk_ugs_user")
 
   @@id([user_id, grammar_id])
   @@index([grammar_id], map: "fk_ugs_grammar")
@@ -163,21 +286,28 @@ model usergrammarstatus {
 }
 
 model users {
-  user_id                          Int                 @id @default(autoincrement())
-  email                            String              @unique(map: "email") @db.VarChar(255)
-  password_hash                    String              @db.Char(60)
-  display_name                     String              @db.VarChar(100)
-  avatar_url                       String?             @db.VarChar(255)
+  user_id                          Int                  @id @default(autoincrement())
+  email                            String               @unique(map: "email") @db.VarChar(255)
+  password_hash                    String               @db.Char(60)
+  display_name                     String               @db.VarChar(100)
+  avatar_url                       String?              @db.VarChar(255)
   jlpt_level                       users_jlpt_level?
-  is_active                        Boolean             @default(true)
-  last_login                       DateTime?           @db.Timestamp(0)
-  created_at                       DateTime            @default(now()) @db.Timestamp(0)
-  admins_admins_assigned_byTousers admins[]            @relation("admins_assigned_byTousers")
-  admins_admins_user_idTousers     admins?             @relation("admins_user_idTousers")
+  is_active                        Boolean              @default(true)
+  last_login                       DateTime?            @db.Timestamp(0)
+  created_at                       DateTime             @default(now()) @db.Timestamp(0)
+  reset_token                      String?              @db.VarChar(255)
+  reset_token_expires              DateTime?            @db.DateTime(0)
+  admins_admins_assigned_byTousers admins[]             @relation("admins_assigned_byTousers")
+  admins_admins_user_idTousers     admins?              @relation("admins_user_idTousers")
   chatsessions                     chatsessions[]
   diaryentries                     diaryentries[]
   fcfolders                        fcfolders[]
   fcsets                           fcsets[]
+  flashcard_sessions               flashcard_sessions[]
+  study_plans                      study_plans[]
+  study_sessions                   study_sessions[]
+  todos                            todos[]
+  user_settings                    user_settings?
   usergrammarstatus                usergrammarstatus[]
   uservocabstatus                  uservocabstatus[]
 
@@ -201,19 +331,20 @@ model uservocabstatus {
 
 model vocabitems {
   vocab_id        Int                   @id @default(autoincrement())
-  word_kanji      String                @db.VarChar(100)
-  word_kana       String                @db.VarChar(100)
-  word_viet       String                @db.Text
-  example_jp      String?               @db.Text
-  example_viet    String?               @db.Text
+  word            String                @db.VarChar(100)
+  meaning         String                @db.VarChar(100)
+  furigana        String                @db.Text
   image_url       String?               @db.VarChar(255)
   jlpt_level      vocabitems_jlpt_level
   is_published    Boolean               @default(false)
+  topic_id        Int?
   uservocabstatus uservocabstatus[]
+  topics          topics?               @relation(fields: [topic_id], references: [topic_id])
 
   @@index([jlpt_level], map: "idx_vocab_level")
   @@index([is_published], map: "idx_vocab_published")
-  @@fulltext([word_kanji, word_kana, word_viet, example_jp, example_viet], map: "ftx_vocab_text")
+  @@index([topic_id], map: "idx_vocab_topic")
+  @@fulltext([word, meaning, furigana], map: "ftx_vocab_text")
 }
 
 enum admins_role {
@@ -226,7 +357,37 @@ enum chatmessages_sender_type {
   bot
 }
 
-enum grammarrules_jlpt_level {
+enum study_sessions_source {
+  timer
+  todo
+  flashcard
+}
+
+enum gram_exercises_question_type {
+  multiple_choice
+  sentence_arrangement
+}
+
+enum gram_exercise_options_option_role {
+  choice
+  arrange_word
+}
+
+enum study_plans_target_level {
+  N5
+  N4
+  N3
+  N2
+  N1
+}
+
+enum todos_status {
+  pending
+  in_progress
+  done
+}
+
+enum grammar_jlpt_level {
   N5
   N4
   N3
@@ -250,7 +411,23 @@ enum vocabitems_jlpt_level {
   N1
 }
 
-enum grammar_rule_category {
+enum gram_exercises_difficulty_level {
+  N5
+  N4
+  N3
+  N2
+  N1
+}
+
+enum grammar_rules_jlpt_level {
+  N5
+  N4
+  N3
+  N2
+  N1
+}
+
+enum grammar_rules_category {
   PARTICLE
   POLITE_FORM
   VERB_CONJUGATION

@@ -22,9 +22,10 @@
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",
     "kuromoji": "^0.1.2",
-    "multer": "^2.0.2",
     "openai": "^6.9.1",
-    "zod": "^4.1.12"
+    "multer": "^2.0.2",
+    "nodemailer": "^6.10.1",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "nodemon": "^3.1.10",
