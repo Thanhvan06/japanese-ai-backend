@@ -211,6 +211,27 @@ model study_sessions {
   @@index([user_id, start_time], map: "idx_study_user_time")
 }
 
+model grammar_rules {
+  grammar_rule_id Int @id @default(autoincrement())
+
+  rule_code        String @db.VarChar(50)
+  rule_name_jp     String @db.VarChar(255)
+  rule_name_viet   String @db.VarChar(255)
+  pattern          String @db.VarChar(255)
+  error_pattern    String? @db.Text
+  correct_pattern  String @db.Text
+  explanation_viet String @db.Text
+  explanation_jp   String @db.Text
+
+  jlpt_level grammarrules_jlpt_level
+  category   grammar_rule_category
+  frequency  Int
+
+  @@index([jlpt_level], map: "idx_grammar_rules_level")
+  @@index([category], map: "idx_grammar_rules_category")
+  @@index([frequency], map: "idx_grammar_rules_frequency")
+}
+
 model systemstats {
   stat_id                 Int      @id @default(autoincrement())
   stat_date               DateTime @unique(map: "stat_date") @db.Date

@@ -44,7 +44,6 @@ export const register = async (req, res, next) => {
   try {
     const data = registerSchema.parse(req.body);
 
-    // email unique
     const exists = await prisma.users.findUnique({
       where: { email: data.email }
     });
@@ -58,12 +57,12 @@ export const register = async (req, res, next) => {
       data: {
         email: data.email,
         password_hash: hash,
-        display_name: data.displayName,     // NOT NULL trong DB
+        display_name: data.displayName,    
         is_active: true
       }
     });
 
-    // có thể auto đăng nhập sau khi đăng ký
+ 
     const token = jwt.sign(
       { user_id: user.user_id, email: user.email },
       process.env.JWT_SECRET,
@@ -96,7 +95,6 @@ export const login = async (req, res, next) => {
       return res.status(401).json({ message: "Email hoặc mật khẩu không đúng" });
     }
 
-    // cập nhật last_login 
     await prisma.users.update({
       where: { user_id: user.user_id },
       data: { last_login: new Date() }
@@ -117,7 +115,6 @@ export const login = async (req, res, next) => {
 
 export const me = async (req, res, next) => {
   try {
-    // req.user được gắn ở middleware auth
     const u = await prisma.users.findUnique({
       where: { user_id: req.user.user_id }
     });
