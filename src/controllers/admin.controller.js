@@ -1,5 +1,4 @@
 import { prisma } from "../prisma.js";
-import { recordAdminAudit } from "../services/adminAudit.service.js";
 
 function toPublicUser(u) {
   return {
@@ -133,11 +132,6 @@ export const uploadAvatar = async (req, res, next) => {
       data: { avatar_url: fileUrl },
     });
 
-    // record audit
-    try {
-      await recordAdminAudit(req.user.user_id, "upload_avatar", id, { filename: req.file.filename });
-    } catch {}
-
     res.json({ user: toPublicUser(updated), url: fileUrl });
   } catch (err) {
     next(err);
@@ -156,10 +150,6 @@ export const updateUser = async (req, res, next) => {
       where: { user_id: id },
       data,
     });
-    // record audit
-    try {
-      await recordAdminAudit(req.user.user_id, "update_user", id, { data });
-    } catch {}
     res.json({ user: toPublicUser(updated) });
   } catch (err) {
     next(err);
@@ -185,7 +175,6 @@ export const promoteToAdmin = async (req, res, next) => {
         data: { role: "admin" },
       }),
     ]);
-    await recordAdminAudit(req.user.user_id, "promote", targetId, { role });
     res.status(201).json({ message: "Đã thăng cấp làm admin" });
   } catch (err) {
     next(err);
@@ -199,7 +188,6 @@ export const demoteAdmin = async (req, res, next) => {
       prisma.admins.delete({ where: { user_id: targetId } }),
       prisma.users.update({ where: { user_id: targetId }, data: { role: "user" } }),
     ]);
-    await recordAdminAudit(req.user.user_id, "demote", targetId, {});
     res.json({ message: "Đã hủy quyền admin" });
   } catch (err) {
     next(err);
@@ -210,7 +198,6 @@ export const deleteUser = async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     await prisma.users.delete({ where: { user_id: id } });
-    await recordAdminAudit(req.user.user_id, "delete_user", id, {});
     res.json({ message: "Đã xóa user" });
   } catch (err) {
     next(err);
@@ -231,11 +218,6 @@ export const activateUser = async (req, res, next) => {
       where: { user_id: id },
       data: { is_active: true },
     });
-
-    // record audit
-    try {
-      await recordAdminAudit(req.user.user_id, "activate_user", id, {});
-    } catch {}
 
     res.json({ 
       message: "Đã kích hoạt tài khoản",
@@ -260,11 +242,6 @@ export const deactivateUser = async (req, res, next) => {
       where: { user_id: id },
       data: { is_active: false },
     });
-
-    // record audit
-    try {
-      await recordAdminAudit(req.user.user_id, "deactivate_user", id, {});
-    } catch {}
 
     res.json({ 
       message: "Đã vô hiệu hóa tài khoản",
