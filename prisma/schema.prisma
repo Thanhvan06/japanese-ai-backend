@@ -247,12 +247,6 @@ model todos {
   @@index([user_id], map: "fk_todos_user")
 }
 
-model topics {
-  topic_id   Int          @id @default(autoincrement())
-  topic_name String       @unique @db.VarChar(255)
-  vocabitems vocabitems[]
-}
-
 model user_settings {
   user_id         Int       @id
   theme_config    Json
@@ -277,44 +271,43 @@ model usergrammarstatus {
 }
 
 model users {
-  user_id                          Int                  @id @default(autoincrement())
-  email                            String               @unique(map: "email") @db.VarChar(255)
-  password_hash                    String               @db.Char(60)
-  display_name                     String               @db.VarChar(100)
-  role                             users_role           @default(user)
-  avatar_url                       String?              @db.VarChar(255)
-  is_active                        Boolean              @default(true)
-  last_login                       DateTime?            @db.Timestamp(0)
-  created_at                       DateTime             @default(now()) @db.Timestamp(0)
-  admins_admins_assigned_byTousers admins[]             @relation("admins_assigned_byTousers")
-  admins_admins_user_idTousers     admins?              @relation("admins_user_idTousers")
+  user_id       Int        @id @default(autoincrement())
+  email         String     @unique(map: "email") @db.VarChar(255)
+  password_hash String     @db.Char(60)
+  display_name  String     @db.VarChar(100)
+  role          users_role @default(user)
+
+  avatar_url    String?    @db.VarChar(255)
+  jlpt_level    users_jlpt_level?
+  is_active     Boolean    @default(true)
+  last_login    DateTime?  @db.Timestamp(0)
+
+  created_at    DateTime   @default(now()) @db.Timestamp(0)
+  reset_token   String?    @db.VarChar(255)
+  reset_token_expires DateTime? @db.DateTime(0)
+
+  admins_admins_assigned_byTousers admins[] @relation("admins_assigned_byTousers")
+  admins_admins_user_idTousers     admins?  @relation("admins_user_idTousers")
   admin_audits                      admin_audit[]
-  avatar_url                       String?              @db.VarChar(255)
-  jlpt_level                       users_jlpt_level?
-  is_active                        Boolean              @default(true)
-  last_login                       DateTime?            @db.Timestamp(0)
-  created_at                       DateTime             @default(now()) @db.Timestamp(0)
-  reset_token                      String?              @db.VarChar(255)
-  reset_token_expires              DateTime?            @db.DateTime(0)
-  admins_admins_assigned_byTousers admins[]             @relation("admins_assigned_byTousers")
-  admins_admins_user_idTousers     admins?              @relation("admins_user_idTousers")
-  chatsessions                     chatsessions[]
-  diaryentries                     diaryentries[]
-  fcfolders                        fcfolders[]
-  fcsets                           fcsets[]
-  listening_attempts               listening_attempts[]
-  flashcard_sessions               flashcard_sessions[]
-  study_plans                      study_plans[]
-  study_sessions                   study_sessions[]
-  todos                            todos[]
-  user_settings                    user_settings?
-  usergrammarstatus                usergrammarstatus[]
-  uservocabstatus                  uservocabstatus[]
+
+  chatsessions       chatsessions[]
+  diaryentries       diaryentries[]
+  fcfolders          fcfolders[]
+  fcsets             fcsets[]
+  listening_attempts listening_attempts[]
+  flashcard_sessions flashcard_sessions[]
+  study_plans        study_plans[]
+  study_sessions     study_sessions[]
+  todos              todos[]
+  user_settings      user_settings?
+  usergrammarstatus  usergrammarstatus[]
+  uservocabstatus    uservocabstatus[]
 
   @@index([created_at], map: "idx_users_created_at")
   @@index([is_active], map: "idx_users_is_active")
   @@index([last_login], map: "idx_users_last_login")
 }
+
 
 model uservocabstatus {
   user_id       Int
@@ -459,6 +452,13 @@ enum vocabitems_jlpt_level {
 }
 
 enum listening_sets_jlpt_level {
+  N5
+  N4
+  N3
+  N2
+  N1
+}
+
 enum gram_exercises_difficulty_level {
   N5
   N4
@@ -475,6 +475,8 @@ enum listening_sets_type {
 enum users_role {
   user
   admin
+}
+
 enum grammar_rules_jlpt_level {
   N5
   N4
