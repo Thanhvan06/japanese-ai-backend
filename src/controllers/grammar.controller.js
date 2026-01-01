@@ -1,4 +1,54 @@
 import { prisma } from "../prisma.js";
+import { z } from "zod";
+import { recordAdminAudit } from "../services/adminAudit.service.js";
+
+// ----- Admin Schemas -----
+const createGrammarSchema = z.object({
+  grammar_structure: z.string().min(1, "Grammar structure là bắt buộc"),
+  explanation_viet: z.string().min(1, "Explanation là bắt buộc"),
+  example_jp: z.string().min(1, "Example JP là bắt buộc"),
+  example_viet: z.string().nullable().optional(),
+  jlpt_level: z.enum(["N5", "N4", "N3", "N2", "N1"], {
+    errorMap: () => ({ message: "JLPT level phải là N5, N4, N3, N2, hoặc N1" }),
+  }),
+  is_published: z.boolean().optional().default(false),
+});
+
+const updateGrammarSchema = z.object({
+  grammar_structure: z.string().min(1).optional(),
+  explanation_viet: z.string().min(1).optional(),
+  example_jp: z.string().min(1).optional(),
+  example_viet: z.string().nullable().optional(),
+  jlpt_level: z.enum(["N5", "N4", "N3", "N2", "N1"]).optional(),
+  is_published: z.boolean().optional(),
+});
+
+// Admin Exercise Schemas
+const optionSchema = z.object({
+  option_text: z.string().min(1, "Option text là bắt buộc"),
+  is_correct: z.boolean().optional(),
+  sort_order: z.number().int().optional(),
+});
+
+const createExerciseSchema = z.object({
+  grammar_id: z.number().int().positive(),
+  question_type: z.enum(["multiple_choice", "sentence_arrangement"]),
+  question_text: z.string().min(1, "Question text là bắt buộc"),
+  question_suffix: z.string().nullable().optional(),
+  explanation_note: z.string().nullable().optional(),
+  difficulty_level: z.enum(["N5", "N4", "N3", "N2", "N1"]),
+  options: z.array(optionSchema).min(1, "Cần ít nhất 1 option"),
+});
+
+const updateExerciseSchema = z.object({
+  grammar_id: z.number().int().positive().optional(),
+  question_type: z.enum(["multiple_choice", "sentence_arrangement"]).optional(),
+  question_text: z.string().min(1).optional(),
+  question_suffix: z.string().nullable().optional(),
+  explanation_note: z.string().nullable().optional(),
+  difficulty_level: z.enum(["N5", "N4", "N3", "N2", "N1"]).optional(),
+  options: z.array(optionSchema).min(1).optional(),
+});
 
 // GET /api/grammar?level=N5
 export const getGrammarByLevel = async (req, res, next) => {
@@ -205,6 +255,617 @@ export const getGrammarExercises = async (req, res, next) => {
     if (err.message && err.message.includes("doesn't exist")) {
       return res.json([]);
     }
+    next(err);
+  }
+};
+
+// ========== ADMIN CRUD OPERATIONS ==========
+
+// GET /api/admin/grammar - List grammar items with filters and pagination
+export const listGrammar = async (req, res, next) => {
+  try {
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.min(100, Number(req.query.limit) || 20);
+    const { jlpt_level, is_published } = req.query;
+
+    const where = {};
+
+    // Filter by jlpt_level
+    if (jlpt_level) {
+      const validLevels = ["N5", "N4", "N3", "N2", "N1"];
+      if (validLevels.includes(jlpt_level)) {
+        where.jlpt_level = jlpt_level;
+      }
+    }
+
+    // Filter by is_published
+    if (is_published !== undefined) {
+      where.is_published = is_published === "true" || is_published === true;
+    }
+
+    const [items, total] = await Promise.all([
+      prisma.grammar.findMany({
+        where,
+        skip: (page - 1) * limit,
+        take: limit,
+        orderBy: { grammar_id: "desc" },
+      }),
+      prisma.grammar.count({ where }),
+    ]);
+
+    res.json({
+      items: items || [],
+      total,
+      page,
+      limit,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// GET /api/admin/grammar/:id - Get single grammar item
+export const getGrammar = async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (isNaN(id)) {
+      return res.status(400).json({ message: "ID không hợp lệ" });
+    }
+
+    const item = await prisma.grammar.findUnique({
+      where: { grammar_id: id },
+    });
+
+    if (!item) {
+      return res.status(404).json({ message: "Không tìm thấy ngữ pháp" });
+    }
+
+    res.json({ item });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// POST /api/admin/grammar - Create new grammar item
+export const createGrammar = async (req, res, next) => {
+  try {
+    const data = createGrammarSchema.parse(req.body);
+
+    const item = await prisma.grammar.create({
+      data: {
+        grammar_structure: data.grammar_structure,
+        explanation_viet: data.explanation_viet,
+        example_jp: data.example_jp,
+        example_viet: data.example_viet ?? null,
+        jlpt_level: data.jlpt_level,
+        is_published: data.is_published ?? false,
+      },
+    });
+
+    // Record audit
+    try {
+      await recordAdminAudit(req.user.user_id, "create_grammar", null, {
+        grammar_id: item.grammar_id,
+        grammar_structure: item.grammar_structure,
+      });
+    } catch {}
+
+    res.status(201).json({ item });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({
+        message: "Dữ liệu không hợp lệ",
+        errors: err.errors,
+      });
+    }
+    next(err);
+  }
+};
+
+// PATCH /api/admin/grammar/:id - Update grammar item
+export const updateGrammar = async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (isNaN(id)) {
+      return res.status(400).json({ message: "ID không hợp lệ" });
+    }
+
+    const existing = await prisma.grammar.findUnique({
+      where: { grammar_id: id },
+    });
+
+    if (!existing) {
+      return res.status(404).json({ message: "Không tìm thấy ngữ pháp" });
+    }
+
+    const data = updateGrammarSchema.parse(req.body);
+
+    const updateData = {};
+    if (data.grammar_structure !== undefined)
+      updateData.grammar_structure = data.grammar_structure;
+    if (data.explanation_viet !== undefined)
+      updateData.explanation_viet = data.explanation_viet;
+    if (data.example_jp !== undefined) updateData.example_jp = data.example_jp;
+    if (data.example_viet !== undefined)
+      updateData.example_viet = data.example_viet;
+    if (data.jlpt_level !== undefined) updateData.jlpt_level = data.jlpt_level;
+    if (data.is_published !== undefined)
+      updateData.is_published = data.is_published;
+
+    const item = await prisma.grammar.update({
+      where: { grammar_id: id },
+      data: updateData,
+    });
+
+    // Record audit
+    try {
+      await recordAdminAudit(req.user.user_id, "update_grammar", null, {
+        grammar_id: id,
+        changes: data,
+      });
+    } catch {}
+
+    res.json({ item });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({
+        message: "Dữ liệu không hợp lệ",
+        errors: err.errors,
+      });
+    }
+    next(err);
+  }
+};
+
+// PATCH /api/admin/grammar/:id/publish - Toggle publish status
+export const togglePublishGrammar = async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (isNaN(id)) {
+      return res.status(400).json({ message: "ID không hợp lệ" });
+    }
+
+    const existing = await prisma.grammar.findUnique({
+      where: { grammar_id: id },
+    });
+
+    if (!existing) {
+      return res.status(404).json({ message: "Không tìm thấy ngữ pháp" });
+    }
+
+    const item = await prisma.grammar.update({
+      where: { grammar_id: id },
+      data: { is_published: !existing.is_published },
+    });
+
+    // Record audit
+    try {
+      await recordAdminAudit(req.user.user_id, "toggle_publish_grammar", null, {
+        grammar_id: id,
+        is_published: item.is_published,
+      });
+    } catch {}
+
+    res.json({ item });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// DELETE /api/admin/grammar/:id - Delete grammar item
+export const deleteGrammar = async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (isNaN(id)) {
+      return res.status(400).json({ message: "ID không hợp lệ" });
+    }
+
+    const existing = await prisma.grammar.findUnique({
+      where: { grammar_id: id },
+    });
+
+    if (!existing) {
+      return res.status(404).json({ message: "Không tìm thấy ngữ pháp" });
+    }
+
+    await prisma.grammar.delete({
+      where: { grammar_id: id },
+    });
+
+    // Record audit
+    try {
+      await recordAdminAudit(req.user.user_id, "delete_grammar", null, {
+        grammar_id: id,
+        grammar_structure: existing.grammar_structure,
+      });
+    } catch {}
+
+    res.json({ message: "Đã xóa ngữ pháp" });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// ========== ADMIN EXERCISE CRUD OPERATIONS ==========
+
+// Helper: Get next exercise_id
+async function getNextExerciseId() {
+  const result = await prisma.$queryRaw`
+    SELECT COALESCE(MAX(exercise_id), 0) + 1 as next_id
+    FROM gram_exercises
+  `;
+  return Number(result[0]?.next_id || 1);
+}
+
+// GET /api/admin/grammar-exercises - List exercises with filters and pagination
+export const listGrammarExercises = async (req, res, next) => {
+  try {
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.min(100, Number(req.query.limit) || 20);
+    const { grammar_id, question_type, difficulty_level, is_active } = req.query;
+
+    const where = {};
+
+    if (grammar_id) {
+      const grammarIdNum = Number(grammar_id);
+      if (!isNaN(grammarIdNum) && grammarIdNum > 0) {
+        where.grammar_id = grammarIdNum;
+      }
+    }
+
+    if (question_type) {
+      const validTypes = ["multiple_choice", "sentence_arrangement"];
+      if (validTypes.includes(question_type)) {
+        where.question_type = question_type;
+      }
+    }
+
+    if (difficulty_level) {
+      const validLevels = ["N5", "N4", "N3", "N2", "N1"];
+      if (validLevels.includes(difficulty_level)) {
+        where.difficulty_level = difficulty_level;
+      }
+    }
+
+    if (is_active !== undefined) {
+      where.is_active = is_active === "true" || is_active === true;
+    }
+
+    const [items, total] = await Promise.all([
+      prisma.gram_exercises.findMany({
+        where,
+        skip: (page - 1) * limit,
+        take: limit,
+        orderBy: { id: "desc" },
+      }),
+      prisma.gram_exercises.count({ where }),
+    ]);
+
+    // Fetch options for each exercise
+    const itemsWithOptions = await Promise.all(
+      items.map(async (item) => {
+        const options = await prisma.gram_exercise_options.findMany({
+          where: { exercise_id: item.exercise_id },
+          orderBy: { sort_order: "asc" },
+        });
+        return {
+          ...item,
+          options,
+        };
+      })
+    );
+
+    res.json({
+      items: itemsWithOptions || [],
+      total,
+      page,
+      limit,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// GET /api/admin/grammar-exercises/:id - Get single exercise
+export const getGrammarExercise = async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (isNaN(id)) {
+      return res.status(400).json({ message: "ID không hợp lệ" });
+    }
+
+    const item = await prisma.gram_exercises.findFirst({
+      where: { exercise_id: id },
+    });
+
+    if (!item) {
+      return res.status(404).json({ message: "Không tìm thấy bài tập" });
+    }
+
+    const options = await prisma.gram_exercise_options.findMany({
+      where: { exercise_id: id },
+      orderBy: { sort_order: "asc" },
+    });
+
+    res.json({ item: { ...item, options } });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// POST /api/admin/grammar-exercises - Create new exercise
+export const createGrammarExercise = async (req, res, next) => {
+  try {
+    const data = createExerciseSchema.parse(req.body);
+
+    // Validate grammar_id exists
+    const grammar = await prisma.grammar.findUnique({
+      where: { grammar_id: data.grammar_id },
+    });
+    if (!grammar) {
+      return res.status(400).json({ message: "Grammar không tồn tại" });
+    }
+
+    // Validate options based on question_type
+    if (data.question_type === "multiple_choice") {
+      // For multiple_choice: options must have role='choice', at least one is_correct=true
+      const hasCorrect = data.options.some((opt) => opt.is_correct === true);
+      if (!hasCorrect) {
+        return res.status(400).json({
+          message: "Multiple choice phải có ít nhất 1 đáp án đúng",
+        });
+      }
+    } else if (data.question_type === "sentence_arrangement") {
+      // For sentence_arrangement: all options should have sort_order
+      const allHaveSortOrder = data.options.every(
+        (opt) => opt.sort_order !== undefined && opt.sort_order !== null
+      );
+      if (!allHaveSortOrder) {
+        return res.status(400).json({
+          message: "Sentence arrangement phải có sort_order cho tất cả options",
+        });
+      }
+    }
+
+    // Get next exercise_id
+    const exerciseId = await getNextExerciseId();
+
+    // Create exercise and options in transaction
+    await prisma.$transaction(async (tx) => {
+      // Create exercise
+      await tx.gram_exercises.create({
+        data: {
+          exercise_id: exerciseId,
+          grammar_id: data.grammar_id,
+          question_type: data.question_type,
+          question_text: data.question_text,
+          question_suffix: data.question_suffix ?? null,
+          explanation_note: data.explanation_note ?? null,
+          difficulty_level: data.difficulty_level,
+          is_active: true,
+        },
+      });
+
+      // Create options
+      let optionIdCounter = 1;
+      for (const option of data.options) {
+        await tx.gram_exercise_options.create({
+          data: {
+            option_id: optionIdCounter++,
+            exercise_id: exerciseId,
+            option_text: option.option_text,
+            option_role:
+              data.question_type === "multiple_choice"
+                ? "choice"
+                : "arrange_word",
+            is_correct:
+              data.question_type === "multiple_choice"
+                ? option.is_correct ?? false
+                : null,
+            sort_order:
+              data.question_type === "sentence_arrangement"
+                ? option.sort_order ?? null
+                : null,
+          },
+        });
+      }
+    });
+
+    // Fetch created exercise with options
+    const created = await prisma.gram_exercises.findFirst({
+      where: { exercise_id: exerciseId },
+    });
+    const options = await prisma.gram_exercise_options.findMany({
+      where: { exercise_id: exerciseId },
+      orderBy: { sort_order: "asc" },
+    });
+
+    // Record audit
+    try {
+      await recordAdminAudit(req.user.user_id, "create_grammar_exercise", null, {
+        exercise_id: exerciseId,
+        grammar_id: data.grammar_id,
+        question_type: data.question_type,
+      });
+    } catch {}
+
+    res.status(201).json({ item: { ...created, options } });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({
+        message: "Dữ liệu không hợp lệ",
+        errors: err.errors,
+      });
+    }
+    next(err);
+  }
+};
+
+// PUT /api/admin/grammar-exercises/:id - Update exercise
+export const updateGrammarExercise = async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (isNaN(id)) {
+      return res.status(400).json({ message: "ID không hợp lệ" });
+    }
+
+    const existing = await prisma.gram_exercises.findFirst({
+      where: { exercise_id: id },
+    });
+
+    if (!existing) {
+      return res.status(404).json({ message: "Không tìm thấy bài tập" });
+    }
+
+    const data = updateExerciseSchema.parse(req.body);
+
+    // Validate grammar_id if provided
+    if (data.grammar_id !== undefined) {
+      const grammar = await prisma.grammar.findUnique({
+        where: { grammar_id: data.grammar_id },
+      });
+      if (!grammar) {
+        return res.status(400).json({ message: "Grammar không tồn tại" });
+      }
+    }
+
+    const questionType = data.question_type ?? existing.question_type;
+
+    // Validate options if provided
+    if (data.options !== undefined) {
+      if (questionType === "multiple_choice") {
+        const hasCorrect = data.options.some((opt) => opt.is_correct === true);
+        if (!hasCorrect) {
+          return res.status(400).json({
+            message: "Multiple choice phải có ít nhất 1 đáp án đúng",
+          });
+        }
+      } else if (questionType === "sentence_arrangement") {
+        const allHaveSortOrder = data.options.every(
+          (opt) => opt.sort_order !== undefined && opt.sort_order !== null
+        );
+        if (!allHaveSortOrder) {
+          return res.status(400).json({
+            message: "Sentence arrangement phải có sort_order cho tất cả options",
+          });
+        }
+      }
+    }
+
+    // Update in transaction
+    await prisma.$transaction(async (tx) => {
+      // Update exercise
+      const updateData = {};
+      if (data.grammar_id !== undefined) updateData.grammar_id = data.grammar_id;
+      if (data.question_type !== undefined)
+        updateData.question_type = data.question_type;
+      if (data.question_text !== undefined)
+        updateData.question_text = data.question_text;
+      if (data.question_suffix !== undefined)
+        updateData.question_suffix = data.question_suffix;
+      if (data.explanation_note !== undefined)
+        updateData.explanation_note = data.explanation_note;
+      if (data.difficulty_level !== undefined)
+        updateData.difficulty_level = data.difficulty_level;
+
+      if (Object.keys(updateData).length > 0) {
+        await tx.gram_exercises.updateMany({
+          where: { exercise_id: id },
+          data: updateData,
+        });
+      }
+
+      // Update options if provided
+      if (data.options !== undefined) {
+        // Delete old options
+        await tx.gram_exercise_options.deleteMany({
+          where: { exercise_id: id },
+        });
+
+        // Create new options
+        let optionIdCounter = 1;
+        for (const option of data.options) {
+          await tx.gram_exercise_options.create({
+            data: {
+              option_id: optionIdCounter++,
+              exercise_id: id,
+              option_text: option.option_text,
+              option_role:
+                questionType === "multiple_choice" ? "choice" : "arrange_word",
+              is_correct:
+                questionType === "multiple_choice"
+                  ? option.is_correct ?? false
+                  : null,
+              sort_order:
+                questionType === "sentence_arrangement"
+                  ? option.sort_order ?? null
+                  : null,
+            },
+          });
+        }
+      }
+    });
+
+    // Fetch updated exercise with options
+    const updated = await prisma.gram_exercises.findFirst({
+      where: { exercise_id: id },
+    });
+    const options = await prisma.gram_exercise_options.findMany({
+      where: { exercise_id: id },
+      orderBy: { sort_order: "asc" },
+    });
+
+    // Record audit
+    try {
+      await recordAdminAudit(req.user.user_id, "update_grammar_exercise", null, {
+        exercise_id: id,
+        changes: data,
+      });
+    } catch {}
+
+    res.json({ item: { ...updated, options } });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({
+        message: "Dữ liệu không hợp lệ",
+        errors: err.errors,
+      });
+    }
+    next(err);
+  }
+};
+
+// DELETE /api/admin/grammar-exercises/:id - Soft delete exercise (set is_active = false)
+export const deleteGrammarExercise = async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (isNaN(id)) {
+      return res.status(400).json({ message: "ID không hợp lệ" });
+    }
+
+    const existing = await prisma.gram_exercises.findFirst({
+      where: { exercise_id: id },
+    });
+
+    if (!existing) {
+      return res.status(404).json({ message: "Không tìm thấy bài tập" });
+    }
+
+    // Soft delete: set is_active = false
+    await prisma.gram_exercises.updateMany({
+      where: { exercise_id: id },
+      data: { is_active: false },
+    });
+
+    // Record audit
+    try {
+      await recordAdminAudit(req.user.user_id, "delete_grammar_exercise", null, {
+        exercise_id: id,
+      });
+    } catch {}
+
+    res.json({ message: "Đã xóa bài tập" });
+  } catch (err) {
     next(err);
   }
 };
