@@ -17,6 +17,7 @@ export const searchAll = async (req, res, next) => {
     // 🔹 Search vocab (return fuller details)
     // By default include unpublished items so seeded/dev data appears.
     if (type === "all" || type === "vocab") {
+      // MySQL LIKE is case-insensitive by default, so no need for mode
       const vocabs = await prisma.vocabitems.findMany({
         where: {
           OR: [
@@ -27,7 +28,7 @@ export const searchAll = async (req, res, next) => {
         },
         take,
         include: {
-          topic: {
+          topics: {
             select: { topic_id: true, topic_name: true },
           },
         },
@@ -42,14 +43,15 @@ export const searchAll = async (req, res, next) => {
           meaning: v.meaning,
           jlpt_level: v.jlpt_level,
           image_url: v.image_url,
-          topic: v.topic || null,
+          topic: v.topics || null,
         })
       );
     }
 
     // 🔹 Search grammar (return fuller details)
     if (type === "all" || type === "grammar") {
-      const grammars = await prisma.grammarrules.findMany({
+      // MySQL LIKE is case-insensitive by default, so no need for mode
+      const grammars = await prisma.grammar.findMany({
         where: {
           OR: [
             { grammar_structure: { contains: q } },

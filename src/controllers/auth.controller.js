@@ -141,9 +141,8 @@ export const me = async (req, res, next) => {
       publicUser.adminRole = adminRec.role;
     }
     
-    res.json({ user: publicUser });
     const personal_room = await getPersonalRoomStateForUser(u.user_id);
-    res.json({ user: toPublicUser(u), personal_room });
+    res.json({ user: publicUser, personal_room });
   } catch (err) {
     next(err);
   }
