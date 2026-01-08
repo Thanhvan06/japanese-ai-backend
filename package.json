@@ -1,6 +1,7 @@
 {
   "name": "japanese-ai-backend",
   "version": "1.0.0",
+  "type": "module",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -8,19 +9,30 @@
     "dev": "nodemon src/server.js",
     "build": "echo \"(JS thuần, không cần build)\"",
     "start": "node src/server.js",
-    "prisma:studio": "npx prisma studio"
+    "prisma:studio": "npx prisma studio",
+    "test:tts": "node test-tts.js",
+    "generate:audio": "node generate-all-audio.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@google-cloud/text-to-speech": "^6.4.0",
+    "@google/generative-ai": "^0.24.1",
     "@prisma/client": "^6.19.0",
+    "axios": "^1.13.2",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",
-    "zod": "^4.1.12"
+    "kuromoji": "^0.1.2",
+    "microsoft-cognitiveservices-speech-sdk": "^1.47.0",
+    "multer": "^2.0.2",
+    "nodemailer": "^6.10.1",
+    "openai": "^6.9.1",
+    "path": "^0.12.7",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "nodemon": "^3.1.10",
