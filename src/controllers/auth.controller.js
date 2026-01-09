@@ -1,15 +1,22 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { z } from "zod";
+import { z, ZodError } from "zod";
 import crypto from "crypto";
 import { prisma } from "../prisma.js";
 import { sendPasswordResetEmail } from "../services/email.service.js";
 import { getPersonalRoomStateForUser } from "./personalRoom.controller.js";
 
 // ----- Schemas -----
+const passwordSchema = z
+  .string()
+  .min(6, "Mật khẩu tối thiểu 6 ký tự")
+  .regex(/[a-z]/, "Mật khẩu phải chứa ít nhất 1 chữ thường")
+  .regex(/[A-Z]/, "Mật khẩu phải chứa ít nhất 1 chữ hoa")
+  .regex(/[^A-Za-z0-9]/, "Mật khẩu phải chứa ít nhất 1 ký tự đặc biệt");
+
 const registerSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(6, "Mật khẩu tối thiểu 6 ký tự"),
+  password: passwordSchema,
   displayName: z.string().min(1, "Vui lòng nhập tên hiển thị")
 });
 
@@ -24,7 +31,7 @@ const forgotPasswordSchema = z.object({
 
 const resetPasswordSchema = z.object({
   token: z.string().min(1),
-  password: z.string().min(6, "Mật khẩu tối thiểu 6 ký tự")
+  password: passwordSchema
 });
 
 // Ẩn trường nhạy cảm
@@ -62,7 +69,6 @@ export const register = async (req, res, next) => {
       }
     });
 
- 
     const token = jwt.sign(
       { user_id: user.user_id, email: user.email, role: user.role ?? "user" },
       process.env.JWT_SECRET,
@@ -71,10 +77,23 @@ export const register = async (req, res, next) => {
 
     res.status(201).json({ user: toPublicUser(user), token });
   } catch (err) {
+    if (err instanceof ZodError) {
+      // Trả về lỗi validation chi tiết
+      return res.status(400).json({
+        message: "Validation failed",
+        errors: err.errors.map((e) => ({
+          path: e.path,
+          message: e.message,
+          validation: e.validation,
+          code: e.code
+        }))
+      });
+    }
     next(err);
   }
 };
 
+// --------- Các API còn lại giữ nguyên ---------
 export const login = async (req, res, next) => {
   try {
     const data = loginSchema.parse(req.body);
@@ -86,7 +105,6 @@ export const login = async (req, res, next) => {
       return res.status(401).json({ message: "Email hoặc mật khẩu không đúng" });
     }
 
-    // Kiểm tra tài khoản có bị vô hiệu hóa không
     if (!user.is_active) {
       return res.status(403).json({ message: "Tài khoản đã bị vô hiệu hóa. Vui lòng liên hệ quản trị viên." });
     }
@@ -101,7 +119,6 @@ export const login = async (req, res, next) => {
       data: { last_login: new Date() }
     });
 
-    // Lấy adminRole nếu user là admin
     const adminRec = await prisma.admins.findUnique({
       where: { user_id: user.user_id }
     });
@@ -131,7 +148,6 @@ export const me = async (req, res, next) => {
     });
     if (!u) return res.status(404).json({ message: "Không tìm thấy người dùng" });
     
-    // Lấy adminRole nếu user là admin
     const adminRec = await prisma.admins.findUnique({
       where: { user_id: u.user_id }
     });
@@ -156,7 +172,6 @@ export const forgotPassword = async (req, res, next) => {
       where: { email: data.email }
     });
 
-    // Không tiết lộ nếu email không tồn tại (bảo mật)
     if (!user) {
       return res.json({ 
         message: "Nếu email tồn tại, chúng tôi đã gửi link đặt lại mật khẩu" 
@@ -167,11 +182,9 @@ export const forgotPassword = async (req, res, next) => {
       return res.status(403).json({ message: "Tài khoản đã bị vô hiệu hóa" });
     }
 
-    // Tạo reset token (random string)
     const resetToken = crypto.randomBytes(32).toString("hex");
-    const resetTokenExpires = new Date(Date.now() + 3600000); // 1 giờ
+    const resetTokenExpires = new Date(Date.now() + 3600000);
 
-    // Lưu token vào DB
     await prisma.users.update({
       where: { user_id: user.user_id },
       data: {
@@ -180,14 +193,12 @@ export const forgotPassword = async (req, res, next) => {
       }
     });
 
-    // Gửi email
     try {
       await sendPasswordResetEmail(user.email, resetToken, user.display_name);
       res.json({ 
         message: "Nếu email tồn tại, chúng tôi đã gửi link đặt lại mật khẩu" 
       });
     } catch (emailError) {
-      // Nếu gửi email thất bại, xóa token
       await prisma.users.update({
         where: { user_id: user.user_id },
         data: {
@@ -206,12 +217,11 @@ export const resetPassword = async (req, res, next) => {
   try {
     const data = resetPasswordSchema.parse(req.body);
 
-    // Tìm user với token hợp lệ
     const user = await prisma.users.findFirst({
       where: {
         reset_token: data.token,
         reset_token_expires: {
-          gt: new Date() // Token chưa hết hạn
+          gt: new Date()
         }
       }
     });
@@ -222,10 +232,8 @@ export const resetPassword = async (req, res, next) => {
       });
     }
 
-    // Hash password mới
     const hash = await bcrypt.hash(data.password, 10);
 
-    // Cập nhật password và xóa reset token
     await prisma.users.update({
       where: { user_id: user.user_id },
       data: {

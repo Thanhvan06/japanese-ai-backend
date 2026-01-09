@@ -20,11 +20,14 @@ import {
   updateGrammarExercise,
   deleteGrammarExercise,
 } from "../controllers/grammar.controller.js";
+import { adminSearch } from "../controllers/search.controller.js";
 import { auth } from "../middlewares/auth.js";
 import { requireAdmin } from "../middlewares/admin.js";
 import uploadAvatar from "../utils/avatarUpload.js";
 
 const r = Router();
+
+r.get("/search", auth(), requireAdmin(), adminSearch);
 
 r.get("/users", auth(), requireAdmin(), adminCtrl.listUsers);
 r.get("/users/:id", auth(), requireAdmin(), adminCtrl.getUser);
