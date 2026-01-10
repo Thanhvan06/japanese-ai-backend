@@ -1,40 +1,9 @@
-import kuromoji from "kuromoji";
 import { prisma } from "../prisma.js";
 
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "japanese-corrector";
-const KUROMOJI_DICT =
-  process.env.KUROMOJI_DICT_PATH || "node_modules/kuromoji/dict";
 
-let tokenizerPromise = null;
-
-function getTokenizer() {
-  if (!tokenizerPromise) {
-    tokenizerPromise = new Promise((resolve, reject) => {
-      kuromoji
-        .builder({ dicPath: KUROMOJI_DICT })
-        .build((err, tokenizer) => {
-          if (err) return reject(err);
-          resolve(tokenizer);
-        });
-    });
-  }
-  return tokenizerPromise;
-}
-
-async function tokenizeWithFurigana(text) {
-  try {
-    const tokenizer = await getTokenizer();
-    return tokenizer.tokenize(text).map(t => ({
-      surface: t.surface_form,
-      reading: t.reading || t.surface_form,
-    }));
-  } catch (err) {
-    console.error("Kuromoji error:", err);
-    return [];
-  }
-}
-
+// ===== GRAMMAR RULES FROM DATABASE =====
 async function getGrammarRulesFromDB() {
   try {
     const rules = await prisma.grammar_rules.findMany({
@@ -61,18 +30,19 @@ async function checkGrammarWithDB(text) {
   const rules = await getGrammarRulesFromDB();
 
   for (const rule of rules) {
-    const match = rule.regex.exec(text);
-    if (!match) continue;
-
-    errors.push({
-      original_word: match[0],
-      suggestions: rule.suggestions,
-      rule_code: rule.rule_code,
-    });
+    let match;
+    while ((match = rule.regex.exec(text)) !== null) {
+      errors.push({
+        original_word: match[0],
+        suggestions: rule.suggestions,
+        rule_code: rule.rule_code,
+      });
+    }
   }
   return errors;
 }
 
+// ===== OLLAMA AI CALLS =====
 async function callOllama(messages) {
   const res = await fetch(`${OLLAMA_URL}/api/chat`, {
     method: "POST",
@@ -108,47 +78,22 @@ function safeJsonParse(text, fallback) {
   }
 }
 
-export async function checkGrammar(text) {
-  if (!text?.trim()) {
-    return { errors: [], furigana: [] };
-  }
+// ===== SPLIT TEXT BY SENTENCE =====
+function splitSentences(text) {
+  // Tách câu theo dấu chấm tiếng Nhật '。'
+  const sentences = text.split('。').filter(s => s.trim());
+  return sentences.map(s => s.trim() + '。');
+}
 
-  /* Furigana */
-  const furigana = await tokenizeWithFurigana(text);
-
-  let aiErrors = [];
-  try {
-    const content = await callOllama([
-      {
-        role: "user",
-        content: text,
-      },
-    ]);
-
-    const parsed = safeJsonParse(content, { errors: [] });
-    aiErrors = Array.isArray(parsed.errors) ? parsed.errors : [];
-  } catch (err) {
-    console.error("AI grammar check failed:", err);
-  }
-
-  let finalErrors = aiErrors;
-
-  if (!finalErrors || finalErrors.length === 0) {
-    try {
-      finalErrors = await checkGrammarWithDB(text);
-    } catch (err) {
-      console.error("DB grammar fallback failed:", err);
-      finalErrors = [];
-    }
-  }
-
-  const validErrors = finalErrors
+// ===== VALIDATE ERRORS =====
+function validateErrors(errors) {
+  return errors
     .filter(e => {
       if (!e.original_word || !Array.isArray(e.suggestions)) return false;
       
       const word = e.original_word.trim();
       const validSuggestions = e.suggestions.filter(
-        s => typeof s === "string" && s.trim() !== word
+        s => typeof s === "string" && s.trim() && s.trim() !== word
       );
       
       return validSuggestions.length > 0;
@@ -156,23 +101,80 @@ export async function checkGrammar(text) {
     .map(e => ({
       original_word: e.original_word.trim(),
       suggestions: e.suggestions
-        .filter(s => typeof s === "string" && s.trim() !== e.original_word.trim())
+        .filter(s => typeof s === "string" && s.trim() && s.trim() !== e.original_word.trim())
         .slice(0, 2),
       rule_code: e.rule_code || null,
     }));
+}
+
+// ===== MAIN GRAMMAR CHECK FUNCTION =====
+export async function checkGrammar(text) {
+  if (!text?.trim()) {
+    return { errors: [] };
+  }
+
+  // Kiểm tra xem có dấu chấm '。' không
+  if (!text.includes('。')) {
+    // Chưa có dấu chấm => không check, chỉ trả về empty
+    return { errors: [] };
+  }
+
+  // Tách thành các câu hoàn chỉnh
+  const sentences = splitSentences(text);
+  let allErrors = [];
+
+  // Check từng câu một
+  for (const sentence of sentences) {
+    if (!sentence.trim()) continue;
+
+    // Bước 1: Gọi AI check grammar
+    let sentenceErrors = [];
+    try {
+      const content = await callOllama([
+        {
+          role: "user",
+          content: sentence,
+        },
+      ]);
+
+      const parsed = safeJsonParse(content, { errors: [] });
+      sentenceErrors = Array.isArray(parsed.errors) ? parsed.errors : [];
+    } catch (err) {
+      console.error("AI grammar check failed:", err);
+    }
+
+    // Bước 2: Nếu AI không tìm thấy lỗi, dùng DB fallback
+    if (!sentenceErrors || sentenceErrors.length === 0) {
+      try {
+        sentenceErrors = await checkGrammarWithDB(sentence);
+      } catch (err) {
+        console.error("DB grammar fallback failed:", err);
+        sentenceErrors = [];
+      }
+    }
+
+    allErrors = allErrors.concat(sentenceErrors);
+  }
+
+  // Validate và clean errors
+  const validErrors = validateErrors(allErrors);
 
   return {
     errors: validErrors,
-    furigana,
   };
 }
 
+// ===== AUTO CORRECTION FUNCTION =====
 export async function correctJapanese(text) {
   if (!text?.trim()) {
-    return { corrected: "", notes: [], furigana: [] };
+    return { corrected: "", notes: [] };
   }
 
-  const furigana = await tokenizeWithFurigana(text);
+  // Kiểm tra xem có dấu chấm '。' không
+  if (!text.includes('。')) {
+    // Chưa hoàn thành câu => không sửa
+    return { corrected: text, notes: [] };
+  }
 
   try {
     const content = await callOllama([
@@ -186,10 +188,9 @@ export async function correctJapanese(text) {
     return {
       corrected: parsed.corrected || text,
       notes: Array.isArray(parsed.notes) ? parsed.notes : [],
-      furigana,
     };
   } catch (err) {
     console.error("Auto-correct failed:", err);
-    return { corrected: text, notes: [], furigana };
+    return { corrected: text, notes: [] };
   }
 }

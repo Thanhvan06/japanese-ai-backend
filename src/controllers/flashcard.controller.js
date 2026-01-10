@@ -536,7 +536,7 @@ export const deleteCard = async (req, res, next) => {
   }
 };
 
-// ----- Study Controllers (Giống Quizlet) -----
+// ----- Study Controllers -----
 
 // Bắt đầu học (lấy danh sách cards để học)
 export const startStudy = async (req, res, next) => {
@@ -564,7 +564,6 @@ export const startStudy = async (req, res, next) => {
     } else if (mode === "mastered") {
       whereClause.mastery_level = { gte: 5 }; // Đã thành thạo (5)
     }
-    // mode === "all" thì lấy tất cả
 
     const cards = await prisma.fccards.findMany({
       where: whereClause,
@@ -575,10 +574,9 @@ export const startStudy = async (req, res, next) => {
       return res.status(404).json({ message: "Không có card nào để học" });
     }
 
-    // Trả về cards (chỉ mặt trước để học)
     const studyCards = cards.map(card => ({
       card_id: card.card_id,
-      front: card.side_jp, // Mặt trước là tiếng Nhật
+      front: card.side_jp, 
       image_url: card.image_url,
       mastery_level: card.mastery_level
     }));
@@ -634,7 +632,6 @@ export const getCardAnswer = async (req, res, next) => {
   }
 };
 
-// Nộp kết quả học (đúng/sai)
 export const submitStudyAnswer = async (req, res, next) => {
   try {
     const setId = parseInt(req.params.setId);
