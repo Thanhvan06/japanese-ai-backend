@@ -1,0 +1,76 @@
+
+chạy model: 
+B1: cd backend
+B2: "docker compose up -d"
+dừng model
+B1: cd backend
+B2: "docker compose down -v"
+
+link demo: http://localhost:9000/
+link API docs: http://localhost:9000/docs
+
+Tài liệu Hướng dẫn API Whisper (STT) cho Dự án Luyện Tiếng NhậtTài liệu này tập trung vào việc kết nối ứng dụng Node.js với Server Whisper chạy qua Docker để đạt hiệu suất cao nhất trên CPU.1. Endpoint chính: Transcribe (Chuyển giọng nói thành văn bản)Sử dụng cổng này để gửi tệp âm thanh thu âm từ người dùng lên Server.URL: http://localhost:9000/v1/audio/transcriptionsPhương thức: POSTKiểu dữ liệu: multipart/form-dataCác tham số cấu hình (Parameters) tối ưu cho tiếng Nhật:Tham sốBắt buộcGiá trị tối ưuMô tảfileCóFile âm thanhTệp âm thanh đã qua xử lý (16kHz, Mono).modelCóbaseTên model bạn đã cấu hình trong Docker.languageKhôngjaÉp AI nhận diện tiếng Nhật (tránh nhầm lẫn ngôn ngữ).temperatureKhông0Giữ độ chính xác tuyệt đối, tránh AI tự "sáng tạo" thêm từ.response_formatKhôngjsonĐịnh dạng trả về tiêu chuẩn để Node.js dễ bóc tách dữ liệu.3. Hướng dẫn gọi API bằng Node.js (Kèm Config & Xử lý Âm thanh)Để Whisper hoạt động chính xác nhất trên CPU, bạn nên chuẩn hóa âm thanh về tần số 16000Hz (16kHz) và kênh đơn (Mono) bằng thư viện fluent-ffmpeg.Bước A: Cài đặt thư viện cần thiếtnpm install axios form-data fluent-ffmpeg
+Lưu ý: Máy tính của bạn cần cài đặt sẵn phần mềm ffmpeg.Bước B: Code Node.js xử lý và gửi APIconst axios = require('axios');
+const FormData = require('form-data');
+const fs = require('fs');
+const ffmpeg = require('fluent-ffmpeg');
+
+/**
+ * Hàm chuẩn hóa âm thanh về 16kHz Mono trước khi gửi tới Whisper
+ * @param {string} inputPath - Đường dẫn file gốc
+ * @param {string} outputPath - Đường dẫn file sau khi convert
+ */
+function processAudio(inputPath, outputPath) {
+    return new Promise((resolve, reject) => {
+        ffmpeg(inputPath)
+            .toFormat('wav')
+            .audioChannels(1)       // Ép về Mono (1 kênh)
+            .audioFrequency(16000)  // Ép về 16000Hz (16kHz)
+            .on('end', () => resolve(outputPath))
+            .on('error', (err) => reject(err))
+            .save(outputPath);
+    });
+}
+
+/**
+ * Hàm gửi âm thanh đã chuẩn hóa tới Docker Whisper
+ */
+async function transcribeJapanese(originalFilePath) {
+    const processedPath = 'processed_audio.wav';
+    
+    try {
+        // 1. Chuẩn hóa định dạng âm thanh (Optimization)
+        console.log("--- Đang chuẩn hóa âm thanh về 16kHz Mono ---");
+        await processAudio(originalFilePath, processedPath);
+
+        // 2. Chuẩn bị Form Data
+        const form = new FormData();
+        form.append('file', fs.createReadStream(processedPath));
+        form.append('model', 'base');
+        form.append('language', 'ja');    // Cấu hình ngôn ngữ Nhật Bản
+        form.append('temperature', '0');  // Cấu hình độ chính xác cao nhất
+        form.append('response_format', 'json');
+
+        console.log("🚀 Đang gửi dữ liệu tới Whisper Server...");
+        
+        // 3. Gọi API
+        const response = await axios.post('http://localhost:8000/v1/audio/transcriptions', form, {
+            headers: { ...form.getHeaders() },
+            timeout: 30000 // CPU cần thời gian xử lý, nên để timeout 30s
+        });
+
+        console.log("✅ Kết quả nhận diện:", response.data.text);
+        
+        // Dọn dẹp file tạm sau khi xong
+        fs.unlinkSync(processedPath);
+        
+        return response.data.text;
+
+    } catch (error) {
+        console.error("❌ Lỗi xử lý:", error.message);
+    }
+}
+
+// Ví dụ sử dụng:
+// transcribeJapanese('./user_voice_input.m4a');
+Tại sao cần chuẩn hóa 16kHz Mono?Độ chính xác: Whisper được huấn luyện chủ yếu trên dữ liệu 16kHz. Việc gửi file 44.1kHz hoặc 48kHz (chất lượng cao) đôi khi khiến AI bị "nhầm" các âm gió (fricatives) của tiếng Nhật.Tốc độ: File Mono 16kHz nhẹ hơn rất nhiều, giúp giảm băng thông truyền dữ liệu vào Docker và giảm tải việc giải mã (decoding) của CPU.Ổn định: Giảm thiểu các lỗi không mong muốn khi người dùng thu âm từ các thiết bị khác nhau (điện thoại, micro rời) với các định dạng bitrate khác nhau.

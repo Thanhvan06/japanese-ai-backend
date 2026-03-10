@@ -1,0 +1,11 @@
+services:
+  whisper:
+    image: fedirz/faster-whisper-server:latest-cpu
+    container_name: whisper-api
+    environment:
+      - WHISPER_MODEL=base          # Tên model (base, small, tiny)
+      - WHISPER_DEVICE=cpu          # Ép chạy trên CPU
+      - WHISPER_COMPUTE_TYPE=int8   # Nén model để chạy cực nhẹ trên CPU
+    ports:
+      - "9000:8000"
+    restart: unless-stopped

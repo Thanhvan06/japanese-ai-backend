@@ -8,6 +8,7 @@ import vocabRoutes from "./routes/vocab.routes.js";
 import topicRoutes from "./routes/topics.routes.js";
 import grammarRoutes from "./routes/grammar.routes.js";
 import listeningRoutes from "./routes/listening.routes.js";
+import speakingRoutes from "./routes/speaking.routes.js";
 import searchRoutes from "./routes/search.routes.js";
 
 // import chatRoutes from "./routes/chat.routes.js";
@@ -41,7 +42,11 @@ app.use("/api/vocab", vocabRoutes);
 app.use("/api/topics", topicRoutes);
 app.use("/api/grammar", grammarRoutes);
 app.use("/api/listening", listeningRoutes);
+<<<<<<< Updated upstream
 // app.use("/api/chat", chatRoutes);
+=======
+app.use("/api/speaking", speakingRoutes);
+>>>>>>> Stashed changes
 app.use("/api", searchRoutes);
 
 app.use(errorHandler);
