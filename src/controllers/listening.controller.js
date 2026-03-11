@@ -7,6 +7,17 @@ import { generateAudioFromText, generateAndUpdateAudio } from "../services/tts.s
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const BASE_URL = process.env.BASE_URL || "http://localhost:4000";
+
+function resolveAudioUrl(audioUrl) {
+  if (!audioUrl) return null;
+  if (audioUrl.startsWith("http://") || audioUrl.startsWith("https://"))
+    return audioUrl;
+  const base = BASE_URL.replace(/\/$/, "");
+  const p = audioUrl.startsWith("/") ? audioUrl : `/${audioUrl}`;
+  return base + p;
+}
+
 // GET /api/listening?level=N5
 export const getListeningByLevel = async (req, res, next) => {
   try {
@@ -25,7 +36,7 @@ export const getListeningByLevel = async (req, res, next) => {
         is_published: true,
       },
       include: {
-        listening_items: {
+        items: {
           orderBy: { item_id: "asc" },
         },
       },
@@ -35,7 +46,7 @@ export const getListeningByLevel = async (req, res, next) => {
     // Flatten items from all sets into exercises
     const exercises = [];
     sets.forEach((set) => {
-      set.listening_items.forEach((item) => {
+      set.items.forEach((item) => {
         let options = [];
         try {
           options = JSON.parse(item.options_json);
@@ -49,7 +60,7 @@ export const getListeningByLevel = async (req, res, next) => {
           set_id: set.set_id,
           set_title: set.title,
           jlpt_level: set.jlpt_level,
-          audioUrl: item.audio_url,
+          audioUrl: resolveAudioUrl(item.audio_url),
           question: item.question,
           options: options,
         });
@@ -57,6 +68,112 @@ export const getListeningByLevel = async (req, res, next) => {
     });
 
     return res.json({ exercises });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// GET /api/listening/review?level=N5
+// Trả về danh sách bài cần ôn tập hôm nay cho user (new + learning)
+export const getListeningReview = async (req, res, next) => {
+  try {
+    if (!req.user) {
+      return res
+        .status(401)
+        .json({ message: "Cần đăng nhập để lấy danh sách ôn tập" });
+    }
+
+    const { level } = req.query;
+    if (!level) {
+      return res
+        .status(400)
+        .json({ message: "Thiếu tham số level (N5, N4, N3, N2, N1)" });
+    }
+
+    const sets = await prisma.listening_sets.findMany({
+      where: { jlpt_level: level, is_published: true },
+      include: {
+        items: {
+          orderBy: { item_id: "asc" },
+        },
+      },
+      orderBy: { set_id: "asc" },
+    });
+
+    const allItems = [];
+    sets.forEach((set) => {
+      set.items.forEach((item) => {
+        let options = [];
+        try {
+          options = JSON.parse(item.options_json);
+        } catch (e) {
+          console.error("Error parsing options_json:", e);
+          options = [];
+        }
+
+        allItems.push({
+          id: item.item_id,
+          set_id: set.set_id,
+          set_title: set.title,
+          jlpt_level: set.jlpt_level,
+          audioUrl: resolveAudioUrl(item.audio_url),
+          question: item.question,
+          options,
+        });
+      });
+    });
+
+    if (allItems.length === 0) {
+      return res.json({ newItems: [], learningItems: [] });
+    }
+
+    const itemIds = allItems.map((i) => i.id);
+
+    const attempts = await prisma.listening_attempts.findMany({
+      where: {
+        user_id: req.user.user_id,
+        item_id: { in: itemIds },
+      },
+      orderBy: { created_at: "asc" },
+    });
+
+    const progressByItem = {};
+    for (const a of attempts) {
+      if (!progressByItem[a.item_id]) {
+        progressByItem[a.item_id] = {
+          attempted: false,
+          lastCorrect: false,
+          wrongCount: 0,
+        };
+      }
+      progressByItem[a.item_id].attempted = true;
+      progressByItem[a.item_id].lastCorrect = a.is_correct;
+      if (!a.is_correct) {
+        progressByItem[a.item_id].wrongCount += 1;
+      }
+    }
+
+    const newItems = [];
+    const learningItems = [];
+
+    allItems.forEach((item) => {
+      const p = progressByItem[item.id];
+      if (!p) {
+        newItems.push(item);
+      } else if (!p.lastCorrect) {
+        learningItems.push({
+          ...item,
+          wrongCount: p.wrongCount,
+        });
+      }
+    });
+
+    learningItems.sort((a, b) => (b.wrongCount || 0) - (a.wrongCount || 0));
+
+    return res.json({
+      newItems: newItems.slice(0, 3),
+      learningItems: learningItems.slice(0, 5),
+    });
   } catch (err) {
     next(err);
   }
@@ -74,7 +191,7 @@ export const getListeningDetail = async (req, res, next) => {
     const item = await prisma.listening_items.findUnique({
       where: { item_id: id },
       include: {
-        listening_sets: {
+        set: {
           select: {
             set_id: true,
             jlpt_level: true,
@@ -103,10 +220,10 @@ export const getListeningDetail = async (req, res, next) => {
     // Format response
     const formattedExercise = {
       id: item.item_id,
-      set_id: item.listening_sets.set_id,
-      set_title: item.listening_sets.title,
-      jlpt_level: item.listening_sets.jlpt_level,
-      audioUrl: item.audio_url,
+      set_id: item.set.set_id,
+      set_title: item.set.title,
+      jlpt_level: item.set.jlpt_level,
+      audioUrl: resolveAudioUrl(item.audio_url),
       transcript: item.transcript_jp || "",
       translation: item.explain_viet || "",
       question: item.question,
@@ -243,6 +360,77 @@ export const generateAudioBatch = async (req, res, next) => {
       results,
       errors,
     });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const MAX_RETRIES = 3;
+
+// POST /api/listening/attempt - Ghi nhận lần làm bài (đúng/sai). Cần đăng nhập.
+export const recordAttempt = async (req, res, next) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ message: "Cần đăng nhập để lưu tiến độ" });
+    }
+    const { itemId, isCorrect } = req.body;
+    if (itemId == null || typeof isCorrect !== "boolean") {
+      return res.status(400).json({ message: "Thiếu itemId hoặc isCorrect" });
+    }
+    const item = await prisma.listening_items.findUnique({
+      where: { item_id: Number(itemId) },
+    });
+    if (!item) {
+      return res.status(404).json({ message: "Không tìm thấy bài tập" });
+    }
+    await prisma.listening_attempts.create({
+      data: {
+        user_id: req.user.user_id,
+        item_id: item.item_id,
+        is_correct: isCorrect,
+      },
+    });
+    return res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// GET /api/listening/progress?level=N5 - Tiến độ theo từng item (đã học, đúng/sai, số lần sai)
+export const getProgress = async (req, res, next) => {
+  try {
+    if (!req.user) {
+      return res.json({ byItem: {} });
+    }
+    const { level } = req.query;
+    if (!level) {
+      return res.status(400).json({ message: "Thiếu tham số level" });
+    }
+    const sets = await prisma.listening_sets.findMany({
+      where: { jlpt_level: level, is_published: true },
+      include: { items: { select: { item_id: true } } },
+    });
+    const itemIds = sets.flatMap((s) => s.items.map((i) => i.item_id));
+    if (itemIds.length === 0) {
+      return res.json({ byItem: {} });
+    }
+    const attempts = await prisma.listening_attempts.findMany({
+      where: {
+        user_id: req.user.user_id,
+        item_id: { in: itemIds },
+      },
+      orderBy: { created_at: "asc" },
+    });
+    const byItem = {};
+    for (const a of attempts) {
+      if (!byItem[a.item_id]) {
+        byItem[a.item_id] = { attempted: false, lastCorrect: false, wrongCount: 0 };
+      }
+      byItem[a.item_id].attempted = true;
+      byItem[a.item_id].lastCorrect = a.is_correct;
+      if (!a.is_correct) byItem[a.item_id].wrongCount += 1;
+    }
+    return res.json({ byItem });
   } catch (err) {
     next(err);
   }

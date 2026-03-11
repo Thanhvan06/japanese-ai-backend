@@ -11,7 +11,7 @@ export const getGrammarByLevel = async (req, res, next) => {
       });
     }
 
-    const items = await prisma.grammarrules.findMany({
+    const items = await prisma.grammar.findMany({
       where: {
         jlpt_level: level,
         is_published: true,
@@ -39,7 +39,7 @@ export const getGrammarDetail = async (req, res, next) => {
       return res.status(400).json({ message: "grammarId không hợp lệ" });
     }
 
-    const grammar = await prisma.grammarrules.findUnique({
+    const grammar = await prisma.grammar.findUnique({
       where: { grammar_id: id },
       select: {
         grammar_id: true,

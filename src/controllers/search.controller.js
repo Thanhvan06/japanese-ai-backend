@@ -28,7 +28,7 @@ export const searchAll = async (req, res, next) => {
         take,
         include: {
           topic: {
-            select: { topic_id: true, topic_name: true },
+            select: { topic_id: true, name: true },
           },
         },
       });
@@ -49,7 +49,7 @@ export const searchAll = async (req, res, next) => {
 
     // 🔹 Search grammar (return fuller details)
     if (type === "all" || type === "grammar") {
-      const grammars = await prisma.grammarrules.findMany({
+      const grammars = await prisma.grammar.findMany({
         where: {
           OR: [
             { grammar_structure: { contains: q } },

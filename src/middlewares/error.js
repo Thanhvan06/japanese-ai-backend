@@ -1,7 +1,4 @@
 export function errorHandler(err, req, res, next) {
-<<<<<<< Updated upstream
-  console.error(err);
-=======
   console.error("Error:", err);
   console.error("Stack:", err.stack);
   
@@ -10,7 +7,6 @@ export function errorHandler(err, req, res, next) {
     return next(err);
   }
   
->>>>>>> Stashed changes
   if (err.status) {
     return res.status(err.status).json({ message: err.message });
   }

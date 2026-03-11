@@ -20,17 +20,19 @@ const app = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-app.use(express.json());
+const jsonParser = express.json();
+
+app.use((req, res, next) => {
+  if (req.path === "/api/speaking/practice") {
+    return next();
+  }
+  return jsonParser(req, res, next);
+});
 
 // Serve static files (audio files)
 app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 
-app.use(
-  cors({
-    origin: process.env.CLIENT_ORIGIN || "http://localhost:5173",
-    credentials: true,
-  })
-);
+app.use(cors());
 
 // TEST route
 app.get("/", (req, res) =>
@@ -42,11 +44,8 @@ app.use("/api/vocab", vocabRoutes);
 app.use("/api/topics", topicRoutes);
 app.use("/api/grammar", grammarRoutes);
 app.use("/api/listening", listeningRoutes);
-<<<<<<< Updated upstream
 // app.use("/api/chat", chatRoutes);
-=======
 app.use("/api/speaking", speakingRoutes);
->>>>>>> Stashed changes
 app.use("/api", searchRoutes);
 
 app.use(errorHandler);

@@ -1,18 +1,25 @@
 import { Router } from "express";
 import {
   getListeningByLevel,
+  getListeningReview,
   getListeningDetail,
   uploadAudio,
   deleteAudio,
   generateAudio,
   generateAudioBatch,
+  recordAttempt,
+  getProgress,
 } from "../controllers/listening.controller.js";
 import upload from "../utils/upload.js";
+import { auth } from "../middlewares/auth.js";
 
 const router = Router();
 
-router.get("/", getListeningByLevel);      // GET /api/listening?level=N5
-router.get("/:id", getListeningDetail);    // GET /api/listening/123
+router.get("/", getListeningByLevel);                    // GET /api/listening?level=N5
+router.get("/review", auth(true), getListeningReview);   // GET /api/listening/review?level=N5
+router.get("/progress", auth(false), getProgress);      // GET /api/listening/progress?level=N5
+router.post("/attempt", auth(false), recordAttempt);    // POST /api/listening/attempt
+router.get("/:id", getListeningDetail);                // GET /api/listening/123
 router.post("/upload", upload.single("audio"), uploadAudio);  // POST /api/listening/upload
 router.post("/generate-audio", generateAudio);  // POST /api/listening/generate-audio
 router.post("/generate-audio-batch", generateAudioBatch);  // POST /api/listening/generate-audio-batch

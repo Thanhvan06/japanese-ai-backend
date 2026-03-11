@@ -8,36 +8,36 @@ datasource db {
 }
 
 model admins {
-  admin_id                        Int         @id @default(autoincrement())
-  user_id                         Int         @unique(map: "user_id")
-  role                            admins_role
+  admin_id                        Int       @id @default(autoincrement())
+  user_id                         Int       @unique(map: "user_id")
+  role                            AdminRole
   assigned_by                     Int?
-  created_at                      DateTime    @default(now()) @db.Timestamp(0)
-  users_admins_assigned_byTousers users?      @relation("admins_assigned_byTousers", fields: [assigned_by], references: [user_id], map: "fk_admins_assigned_by")
-  users_admins_user_idTousers     users       @relation("admins_user_idTousers", fields: [user_id], references: [user_id], onDelete: Cascade, map: "fk_admins_user")
+  created_at                      DateTime  @default(now()) @db.Timestamp(0)
+  users_admins_assigned_byTousers users?    @relation("admins_assigned_byTousers", fields: [assigned_by], references: [user_id], map: "fk_admins_assigned_by")
+  user                            users     @relation(fields: [user_id], references: [user_id], onDelete: Cascade, map: "fk_admins_user")
 
   @@index([assigned_by], map: "fk_admins_assigned_by")
 }
 
 model chatmessages {
-  message_id   Int                      @id @default(autoincrement())
-  session_id   Int
-  sender_type  chatmessages_sender_type
-  content      String                   @db.Text
-  sent_at      DateTime                 @default(now()) @db.Timestamp(0)
-  chatsessions chatsessions             @relation(fields: [session_id], references: [session_id], onDelete: Cascade, map: "fk_chatmsg_session")
+  message_id  Int          @id @default(autoincrement())
+  session_id  Int
+  sender_type SenderType
+  content     String       @db.Text
+  sent_at     DateTime     @default(now()) @db.Timestamp(0)
+  session     chatsessions @relation(fields: [session_id], references: [session_id], onDelete: Cascade, map: "fk_chatmsg_session")
 
   @@index([session_id, sent_at], map: "idx_chatmsg_session_time")
   @@fulltext([content], map: "ftx_chatmsg_content")
 }
 
 model chatsessions {
-  session_id   Int            @id @default(autoincrement())
-  user_id      Int
-  start_time   DateTime       @default(now()) @db.Timestamp(0)
-  topic        String?        @db.VarChar(255)
-  chatmessages chatmessages[]
-  users        users          @relation(fields: [user_id], references: [user_id], onDelete: Cascade, map: "fk_chats_user")
+  session_id Int            @id @default(autoincrement())
+  user_id    Int
+  start_time DateTime       @default(now()) @db.Timestamp(0)
+  topic      String?        @db.VarChar(255)
+  messages   chatmessages[]
+  user       users          @relation(fields: [user_id], references: [user_id], onDelete: Cascade, map: "fk_chats_user")
 
   @@index([start_time], map: "idx_chats_start")
   @@index([user_id], map: "idx_chats_user")
@@ -49,10 +49,11 @@ model diaryentries {
   title        String?  @db.VarChar(255)
   content_jp   String   @db.Text
   image_url    String?  @db.VarChar(255)
+  images       String?  @db.Text
   nlp_analysis String?  @db.LongText
   created_at   DateTime @default(now()) @db.Timestamp(0)
-  updated_at   DateTime @default(now()) @db.Timestamp(0)
-  users        users    @relation(fields: [user_id], references: [user_id], onDelete: Cascade, map: "fk_diary_user")
+  updated_at   DateTime @default(now()) @updatedAt @db.Timestamp(0)
+  user         users    @relation(fields: [user_id], references: [user_id], onDelete: Cascade, map: "fk_diary_user")
 
   @@index([created_at], map: "idx_diary_created")
   @@index([updated_at], map: "idx_diary_updated")
@@ -60,269 +61,294 @@ model diaryentries {
   @@fulltext([title, content_jp], map: "ftx_diary_content")
 }
 
-model fccards {
-  card_id       Int     @id @default(autoincrement())
-  set_id        Int
-  side_jp       String  @db.Text
-  side_viet     String  @db.Text
-  image_url     String? @db.VarChar(255)
-  mastery_level Int     @default(1) @db.TinyInt
-  fcsets        fcsets  @relation(fields: [set_id], references: [set_id], onDelete: Cascade, map: "fk_fccards_set")
-
-  @@index([set_id], map: "idx_fccards_set")
-  @@fulltext([side_jp, side_viet], map: "ftx_fccards_text")
-}
-
 model fcfolders {
   folder_id   Int      @id @default(autoincrement())
   user_id     Int
   folder_name String   @db.VarChar(255)
-  users       users    @relation(fields: [user_id], references: [user_id], onDelete: Cascade, map: "fk_fcfolders_user")
-  fcsets      fcsets[]
+  user        users    @relation(fields: [user_id], references: [user_id], onDelete: Cascade, map: "fk_fcfolders_user")
+  sets        fcsets[]
 
   @@index([user_id], map: "idx_fcfolders_user")
 }
 
 model fcsets {
-  set_id          Int        @id @default(autoincrement())
-  user_id         Int
-  folder_id       Int?
-  set_name        String     @db.VarChar(255)
-  times_practiced Int        @default(0)
-  created_at      DateTime   @default(now()) @db.Timestamp(0)
-  fccards         fccards[]
-  fcfolders       fcfolders? @relation(fields: [folder_id], references: [folder_id], map: "fk_fcsets_folder")
-  users           users      @relation(fields: [user_id], references: [user_id], onDelete: Cascade, map: "fk_fcsets_user")
+  set_id     Int        @id @default(autoincrement())
+  user_id    Int
+  folder_id  Int?
+  set_name   String     @db.VarChar(255)
+  created_at DateTime   @default(now()) @db.Timestamp(0)
+  cards      fccards[]
+  folder     fcfolders? @relation(fields: [folder_id], references: [folder_id], map: "fk_fcsets_folder")
+  users      users      @relation(fields: [user_id], references: [user_id], onDelete: Cascade, map: "fk_fcsets_user")
 
   @@index([created_at], map: "idx_fcsets_created_at")
   @@index([folder_id], map: "idx_fcsets_folder")
-  @@index([times_practiced], map: "idx_fcsets_times")
   @@index([user_id], map: "idx_fcsets_user")
 }
 
-model grammarrules {
-  grammar_id        Int                     @id @default(autoincrement())
-  grammar_structure String                  @db.VarChar(255)
-  explanation_viet  String                  @db.Text
-  example_jp        String                  @db.Text
-  example_viet      String?                 @db.Text
-  jlpt_level        grammarrules_jlpt_level
-  is_published      Boolean                 @default(false)
-  usergrammarstatus usergrammarstatus[]
+model fccards {
+  card_id       Int     @id @default(autoincrement())
+  set_id        Int
+  side_jp       String  @db.Text
+  side_viet     String  @db.Text
+  image_url     String? @db.Text
+  mastery_level Int     @default(1) @db.TinyInt
+  set           fcsets  @relation(fields: [set_id], references: [set_id], onDelete: Cascade, map: "fk_fccards_set")
+
+  @@index([set_id], map: "idx_fccards_set")
+  @@fulltext([side_jp, side_viet], map: "ftx_fccards_text")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model flashcard_sessions {
+  session_id           Int
+  user_id              Int
+  set_id               Int
+  remembered_count     Int
+  not_remembered_count Int
+  completed_at         DateTime? @default(now()) @db.Timestamp(0)
+
+  @@ignore
+}
+
+model grammar {
+  grammar_id        Int       @id @default(autoincrement())
+  grammar_structure String    @db.VarChar(255)
+  explanation_viet  String    @db.Text
+  example_jp        String    @db.Text
+  example_viet      String?   @db.Text
+  jlpt_level        JLPTLevel
+  is_published      Boolean   @default(false)
 
   @@index([jlpt_level], map: "idx_grammar_level")
   @@index([is_published], map: "idx_grammar_published")
   @@fulltext([grammar_structure, explanation_viet, example_jp], map: "ftx_grammar_text")
 }
 
-model systemstats {
-  stat_id                 Int      @id @default(autoincrement())
-  stat_date               DateTime @unique(map: "stat_date") @db.Date
-  total_users             Int
-  new_users_daily         Int
-  active_users_daily      Int
-  total_sets_created      Int
-  daily_diary_entries     Int
-  total_published_vocab   Int
-  total_published_grammar Int
+model grammar_rules {
+  grammar_rule_id  Int                      @id @default(autoincrement())
+  rule_code        String                   @db.VarChar(50)
+  rule_name_jp     String                   @db.VarChar(255)
+  rule_name_viet   String                   @db.VarChar(255)
+  pattern          String                   @db.VarChar(255)
+  error_pattern    String?                  @db.Text
+  correct_pattern  String                   @db.Text
+  explanation_viet String                   @db.Text
+  explanation_jp   String                   @db.Text
+  jlpt_level       grammar_rules_jlpt_level
+  category         grammar_rules_category
+  frequency        Int
+
+  @@index([category], map: "idx_grammar_rules_category")
+  @@index([frequency], map: "idx_grammar_rules_frequency")
+  @@index([jlpt_level], map: "idx_grammar_rules_level")
 }
 
-model usergrammarstatus {
-  user_id       Int
-  grammar_id    Int
-  mastery_level Int          @default(1) @db.TinyInt
-  last_reviewed DateTime?    @db.Timestamp(0)
-  grammarrules  grammarrules @relation(fields: [grammar_id], references: [grammar_id], onDelete: Cascade, map: "fk_ugs_grammar")
-  users         users        @relation(fields: [user_id], references: [user_id], onDelete: Cascade, map: "fk_ugs_user")
+model gram_exercises {
+  id               Int                             @id @default(autoincrement())
+  exercise_id      Int
+  grammar_id       Int
+  question_type    gram_exercises_question_type
+  question_text    String                          @db.Text
+  question_suffix  String?                         @db.Text
+  explanation_note String?                         @db.Text
+  difficulty_level gram_exercises_difficulty_level
+  is_active        Boolean                         @default(true)
+  created_at       DateTime?                       @default(now()) @db.Timestamp(0)
+}
 
-  @@id([user_id, grammar_id])
-  @@index([grammar_id], map: "fk_ugs_grammar")
-  @@index([last_reviewed], map: "idx_ugs_last_reviewed")
+model gram_exercise_options {
+  id          Int                               @id @default(autoincrement())
+  option_id   Int
+  exercise_id Int
+  option_text String                            @db.VarChar(255)
+  option_role gram_exercise_options_option_role @default(choice)
+  is_correct  Boolean?                          @default(false)
+  sort_order  Int?
+  created_at  DateTime?                         @default(now()) @db.Timestamp(0)
+}
+
+model study_plans {
+  plan_id       Int                      @id @default(autoincrement())
+  user_id       Int
+  start_date    DateTime                 @db.Date
+  end_date      DateTime                 @db.Date
+  target_level  study_plans_target_level
+  words_per_day Int
+  created_at    DateTime?                @default(now()) @db.Timestamp(0)
+  items         study_plan_items[]
+  user          users                    @relation(fields: [user_id], references: [user_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_study_plans_user")
+
+  @@index([user_id], map: "fk_study_plans_user")
+}
+
+model study_plan_items {
+  item_id              Int         @id @default(autoincrement())
+  plan_id              Int
+  study_date           DateTime    @db.Date
+  required_vocab_count Int
+  plan                 study_plans @relation(fields: [plan_id], references: [plan_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_plan_items_plan")
+
+  @@unique([plan_id, study_date], map: "uq_plan_date")
+}
+
+model todos {
+  todo_id           Int         @id @default(autoincrement())
+  user_id           Int
+  title             String      @db.VarChar(255)
+  expected_duration Int?
+  status            TodoStatus? @default(pending)
+  created_at        DateTime?   @default(now()) @db.Timestamp(0)
+  user              users       @relation(fields: [user_id], references: [user_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_todos_user")
+
+  @@index([user_id], map: "fk_todos_user")
+}
+
+model topics {
+  topic_id Int    @id @default(autoincrement())
+  name     String @unique @map("topic_name") @db.VarChar(255)
+
+  vocabitems vocabitems[]
 }
 
 model users {
-<<<<<<< Updated upstream
-  user_id                          Int                  @id @default(autoincrement())
-  email                            String               @unique(map: "email") @db.VarChar(255)
-  password_hash                    String               @db.Char(60)
-  display_name                     String               @db.VarChar(100)
-  avatar_url                       String?              @db.VarChar(255)
-  jlpt_level                       users_jlpt_level?
-  is_active                        Boolean              @default(true)
-  last_login                       DateTime?            @db.Timestamp(0)
-  created_at                       DateTime             @default(now()) @db.Timestamp(0)
-  admins_admins_assigned_byTousers admins[]             @relation("admins_assigned_byTousers")
-  admins_admins_user_idTousers     admins?              @relation("admins_user_idTousers")
-  chatsessions                     chatsessions[]
-  diaryentries                     diaryentries[]
-  fcfolders                        fcfolders[]
+  user_id                          Int            @id @default(autoincrement())
+  email                            String         @unique(map: "email") @db.VarChar(255)
+  password_hash                    String         @db.Char(60)
+  display_name                     String         @db.VarChar(100)
+  avatar_url                       String?        @db.VarChar(255)
+  jlpt_level                       JLPTLevel?
+  is_active                        Boolean        @default(true)
+  last_login                       DateTime?      @db.Timestamp(0)
+  created_at                       DateTime       @default(now()) @db.Timestamp(0)
+  reset_token                      String?        @db.VarChar(255)
+  reset_token_expires              DateTime?      @db.DateTime(0)
+  role                             UserRole       @default(user)
+  admins_admins_assigned_byTousers admins[]       @relation("admins_assigned_byTousers")
+  admin                            admins?
+  chats                            chatsessions[]
+  diaries                          diaryentries[]
+  folders                          fcfolders[]
   fcsets                           fcsets[]
-  listening_attempts               listening_attempts[]
-  usergrammarstatus                usergrammarstatus[]
-  uservocabstatus                  uservocabstatus[]
-=======
-  user_id       Int        @id @default(autoincrement())
-  email         String     @unique(map: "email") @db.VarChar(255)
-  password_hash String     @db.Char(60)
-  display_name  String     @db.VarChar(100)
-  role          users_role @default(user)
-
-  avatar_url    String?    @db.VarChar(255)
-  jlpt_level    users_jlpt_level?
-  is_active     Boolean    @default(true)
-  last_login    DateTime?  @db.Timestamp(0)
-
-  created_at    DateTime   @default(now()) @db.Timestamp(0)
-  reset_token   String?    @db.VarChar(255)
-  reset_token_expires DateTime? @db.DateTime(0)
-
-  admins_admins_assigned_byTousers admins[] @relation("admins_assigned_byTousers")
-  admins_admins_user_idTousers     admins?  @relation("admins_user_idTousers")
-  admin_audits                     admin_audit[]
-
-  chatsessions       chatsessions[]
-  diaryentries       diaryentries[]
-  fcfolders          fcfolders[]
-  fcsets             fcsets[]
-  listening_attempts listening_attempts[]
-  flashcard_sessions flashcard_sessions[]
-  study_plans        study_plans[]
-  study_sessions     study_sessions[]
+  plans              study_plans[]
   todos              todos[]
-  user_settings      user_settings?
-  usergrammarstatus  usergrammarstatus[]
-  uservocabstatus    uservocabstatus[]
+  listening_attempts listening_attempts[]
   speaking_attempts  speaking_attempts[]
->>>>>>> Stashed changes
 
   @@index([created_at], map: "idx_users_created_at")
   @@index([is_active], map: "idx_users_is_active")
   @@index([last_login], map: "idx_users_last_login")
 }
 
-model uservocabstatus {
-  user_id       Int
-  vocab_id      Int
-  mastery_level Int        @default(1) @db.TinyInt
-  last_reviewed DateTime?  @db.Timestamp(0)
-  users         users      @relation(fields: [user_id], references: [user_id], onDelete: Cascade, map: "fk_uvs_user")
-  vocabitems    vocabitems @relation(fields: [vocab_id], references: [vocab_id], onDelete: Cascade, map: "fk_uvs_vocab")
-
-  @@id([user_id, vocab_id])
-  @@index([vocab_id], map: "fk_uvs_vocab")
-  @@index([last_reviewed], map: "idx_uvs_last_reviewed")
-}
-
-model topics {
-  topic_id   Int          @id @default(autoincrement())
-  topic_name String       @unique @db.VarChar(255)
-  vocabitems vocabitems[]
+model user_settings {
+  user_id         Int       @id
+  theme_config    Json
+  todo_config     Json
+  playlist_config Json
+  created_at      DateTime? @default(now()) @db.Timestamp(0)
+  updated_at      DateTime? @default(now()) @db.Timestamp(0)
 }
 
 model vocabitems {
-  vocab_id        Int                   @id @default(autoincrement())
-  word            String                @db.VarChar(100)
-  meaning         String                @db.VarChar(100)
-  furigana        String                @db.Text
-  image_url       String?               @db.VarChar(255)
-  jlpt_level      vocabitems_jlpt_level
-  is_published    Boolean               @default(false)
-  topic_id        Int?
-  uservocabstatus uservocabstatus[]
-  topic           topics?               @relation(fields: [topic_id], references: [topic_id])
+  vocab_id     Int       @id @default(autoincrement())
+  word         String    @db.VarChar(100)
+  meaning      String    @db.VarChar(100)
+  furigana     String    @db.Text
+  image_url    String?   @db.VarChar(255)
+  jlpt_level   JLPTLevel
+  is_published Boolean   @default(false)
+  topic_id     Int?
+
+  topic topics? @relation(fields: [topic_id], references: [topic_id])
 
   @@index([jlpt_level], map: "idx_vocab_level")
   @@index([is_published], map: "idx_vocab_published")
   @@index([topic_id], map: "idx_vocab_topic")
-  @@fulltext([word, meaning, furigana], map: "ftx_vocab_text")
-}
-
-model listening_attempts {
-  attempt_id     Int            @id @default(autoincrement())
-  user_id        Int
-  set_id         Int
-  score          Int            @default(0)
-  total          Int            @default(0)
-  details_json   String?        @db.LongText
-  created_at     DateTime       @default(now()) @db.Timestamp(0)
-  listening_sets listening_sets @relation(fields: [set_id], references: [set_id], onDelete: Cascade)
-  users          users          @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
-
-  @@index([set_id])
-  @@index([user_id])
-}
-
-model listening_items {
-  item_id        Int            @id @default(autoincrement())
-  set_id         Int
-  audio_url      String         @db.VarChar(255)
-  question       String         @db.Text
-  options_json   String         @db.LongText
-  correct_index  Int
-  transcript_jp  String?        @db.LongText
-  explain_viet   String?        @db.LongText
-  created_at     DateTime       @default(now()) @db.Timestamp(0)
-  listening_sets listening_sets @relation(fields: [set_id], references: [set_id], onDelete: Cascade)
-
-  @@index([set_id])
-}
-
-model listening_sets {
-  set_id             Int                       @id @default(autoincrement())
-  jlpt_level         listening_sets_jlpt_level
-  type               listening_sets_type
-  title              String                    @db.VarChar(255)
-  is_published       Boolean                   @default(false)
-  created_at         DateTime                  @default(now()) @db.Timestamp(0)
-  listening_attempts listening_attempts[]
-  listening_items    listening_items[]
 }
 
 model speaking_phrases {
-  phrase_id    Int                 @id @default(autoincrement())
-  jp           String              @db.Text
-  romaji       String?             @db.VarChar(255)
-  vi           String?             @db.VarChar(255)
-  topic        String?             @db.VarChar(255)
-  jlpt_level   speaking_jlpt_level?
-  audio_url    String?             @db.VarChar(255)
-  is_published Boolean             @default(false)
-  created_at   DateTime            @default(now()) @db.Timestamp(0)
+  phrase_id    Int       @id @default(autoincrement())
+  jp           String    @db.Text
+  romaji       String?   @db.Text
+  vi           String    @db.Text
+  topic        String?   @db.VarChar(255)
+  jlpt_level   JLPTLevel
+  is_published Boolean   @default(false)
+  audio_url    String?   @db.VarChar(500)
+  created_at       DateTime           @default(now()) @db.Timestamp(0)
   speaking_attempts speaking_attempts[]
 
-  @@index([jlpt_level])
-  @@index([is_published])
-  @@fulltext([jp, romaji], map: "ftx_speaking_phrase")
+  @@index([jlpt_level], map: "idx_speaking_jlpt_level")
+  @@index([is_published], map: "idx_speaking_published")
+  @@fulltext([jp, vi], map: "ftx_speaking_text")
 }
 
 model speaking_attempts {
-  attempt_id   Int            @id @default(autoincrement())
-  user_id      Int
-  phrase_id    Int
-  audio_url    String?        @db.VarChar(255)
-  transcribed_text String?    @db.Text
-  accuracy_score Decimal?     @db.Decimal(5, 2)
-  details_json String?        @db.LongText
-  created_at   DateTime       @default(now()) @db.Timestamp(0)
-  speaking_phrases speaking_phrases @relation(fields: [phrase_id], references: [phrase_id], onDelete: Cascade)
-  users        users          @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+  attempt_id       Int               @id @default(autoincrement())
+  user_id          Int
+  phrase_id        Int
+  audio_url        String            @db.VarChar(500)
+  transcribed_text String            @db.Text
+  accuracy_score   Float?
+  details_json     String?           @db.Text
+  created_at       DateTime          @default(now()) @db.Timestamp(0)
+  user             users             @relation(fields: [user_id], references: [user_id], onDelete: Cascade, map: "fk_speaking_attempts_user")
+  speaking_phrases speaking_phrases  @relation(fields: [phrase_id], references: [phrase_id], onDelete: Cascade, map: "fk_speaking_attempts_phrase")
 
-  @@index([phrase_id])
-  @@index([user_id])
-  @@index([created_at])
+  @@index([user_id], map: "idx_speaking_attempts_user")
+  @@index([phrase_id], map: "idx_speaking_attempts_phrase")
 }
 
-enum admins_role {
+model listening_sets {
+  set_id       Int              @id @default(autoincrement())
+  title        String?          @db.VarChar(255)
+  jlpt_level   JLPTLevel
+  is_published Boolean          @default(false)
+  items        listening_items[]
+
+  @@index([jlpt_level], map: "idx_listening_sets_level")
+  @@index([is_published], map: "idx_listening_sets_published")
+}
+
+model listening_items {
+  item_id       Int                 @id @default(autoincrement())
+  set_id        Int
+  audio_url     String?              @db.VarChar(500)
+  options_json  String?              @db.Text
+  question      String?              @db.Text
+  transcript_jp String?              @db.Text
+  explain_viet  String?              @db.Text
+  correct_index Int?                 @default(0)
+  set           listening_sets       @relation(fields: [set_id], references: [set_id], onDelete: Cascade, map: "fk_listening_items_set")
+  attempts      listening_attempts[]
+
+  @@index([set_id], map: "idx_listening_items_set")
+}
+
+model listening_attempts {
+  attempt_id  Int              @id @default(autoincrement())
+  user_id     Int
+  item_id     Int
+  is_correct  Boolean
+  created_at  DateTime         @default(now()) @db.Timestamp(0)
+  user        users            @relation(fields: [user_id], references: [user_id], onDelete: Cascade, map: "fk_listening_attempts_user")
+  item        listening_items   @relation(fields: [item_id], references: [item_id], onDelete: Cascade, map: "fk_listening_attempts_item")
+
+  @@index([user_id], map: "idx_listening_attempts_user")
+  @@index([item_id], map: "idx_listening_attempts_item")
+}
+
+enum AdminRole {
   super_admin
   content_manager
 }
 
-enum chatmessages_sender_type {
+enum SenderType {
   user
   bot
 }
 
-enum grammarrules_jlpt_level {
+enum JLPTLevel {
   N5
   N4
   N3
@@ -330,40 +356,41 @@ enum grammarrules_jlpt_level {
   N1
 }
 
-enum users_jlpt_level {
-  N5
-  N4
-  N3
-  N2
-  N1
+enum TodoStatus {
+  pending
+  in_progress
+  done
 }
 
-enum vocabitems_jlpt_level {
-  N5
-  N4
-  N3
-  N2
-  N1
-}
-
-enum listening_sets_jlpt_level {
-  N5
-  N4
-  N3
-  N2
-  N1
-}
-
-enum listening_sets_type {
-  point
-  response
-}
-<<<<<<< Updated upstream
-=======
-
-enum users_role {
+enum UserRole {
   user
   admin
+}
+
+enum gram_exercises_question_type {
+  multiple_choice
+  sentence_arrangement
+}
+
+enum gram_exercise_options_option_role {
+  choice
+  arrange_word
+}
+
+enum study_plans_target_level {
+  N5
+  N4
+  N3
+  N2
+  N1
+}
+
+enum gram_exercises_difficulty_level {
+  N5
+  N4
+  N3
+  N2
+  N1
 }
 
 enum grammar_rules_jlpt_level {
@@ -383,12 +410,3 @@ enum grammar_rules_category {
   CAUSATIVE
   OTHER
 }
-
-enum speaking_jlpt_level {
-  N5
-  N4
-  N3
-  N2
-  N1
-}
->>>>>>> Stashed changes

@@ -149,7 +149,7 @@ export const generatePhraseAudio = async (req, res, next) => {
  */
 export const practiceSpeaking = async (req, res, next) => {
   try {
-    const { phraseId } = req.body;
+    const phraseId = req.body?.phraseId || req.query?.phraseId;
     const audioFile = req.file;
 
     if (!audioFile) {
@@ -392,8 +392,12 @@ export const getSpeakingStats = async (req, res, next) => {
       .sort((a, b) => new Date(b.date) - new Date(a.date))
       .slice(0, 7);
 
+    const todayKey = new Date().toISOString().split("T")[0];
+    const todayStats = dailyProgress[todayKey];
+
     return res.json({
       totalAttempts,
+      todayAttempts: todayStats ? todayStats.count : 0,
       averageScore: avgScore._avg.accuracy_score || 0,
       recentAttempts: recentAttempts.map((a) => ({
         attemptId: a.attempt_id,
