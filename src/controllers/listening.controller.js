@@ -18,10 +18,10 @@ function resolveAudioUrl(audioUrl) {
   return base + p;
 }
 
-// GET /api/listening?level=N5
+// GET /api/listening?level=N5&exerciseType=multiple_choice
 export const getListeningByLevel = async (req, res, next) => {
   try {
-    const { level } = req.query;
+    const { level, exerciseType } = req.query;
 
     if (!level) {
       return res.status(400).json({
@@ -29,14 +29,25 @@ export const getListeningByLevel = async (req, res, next) => {
       });
     }
 
+    const whereClause = {
+      jlpt_level: level,
+      is_published: true,
+    };
+
+    if (exerciseType) {
+      whereClause.items = {
+        some: {
+          exercise_type: exerciseType,
+        },
+      };
+    }
+
     // Get listening sets for the level
     const sets = await prisma.listening_sets.findMany({
-      where: {
-        jlpt_level: level,
-        is_published: true,
-      },
+      where: whereClause,
       include: {
         items: {
+          where: exerciseType ? { exercise_type: exerciseType } : undefined,
           orderBy: { item_id: "asc" },
         },
       },
@@ -48,11 +59,22 @@ export const getListeningByLevel = async (req, res, next) => {
     sets.forEach((set) => {
       set.items.forEach((item) => {
         let options = [];
+        let words = [];
         try {
-          options = JSON.parse(item.options_json);
+          if (item.options_json) {
+            options = JSON.parse(item.options_json);
+          }
         } catch (e) {
           console.error("Error parsing options_json:", e);
           options = [];
+        }
+        try {
+          if (item.words_json) {
+            words = JSON.parse(item.words_json);
+          }
+        } catch (e) {
+          console.error("Error parsing words_json:", e);
+          words = [];
         }
 
         exercises.push({
@@ -60,9 +82,11 @@ export const getListeningByLevel = async (req, res, next) => {
           set_id: set.set_id,
           set_title: set.title,
           jlpt_level: set.jlpt_level,
+          exercise_type: item.exercise_type,
           audioUrl: resolveAudioUrl(item.audio_url),
           question: item.question,
           options: options,
+          words: words,
         });
       });
     });
@@ -208,26 +232,49 @@ export const getListeningDetail = async (req, res, next) => {
     // Parse options from JSON
     let options = [];
     try {
-      options = JSON.parse(item.options_json);
+      if (item.options_json) {
+        const parsed = JSON.parse(item.options_json);
+        options = Array.isArray(parsed) ? parsed : [];
+      }
     } catch (e) {
       console.error("Error parsing options_json:", e);
       options = [];
     }
 
     // Get correct answer from options array using correct_index
-    const correctAnswer = options[item.correct_index] || "";
+    let correctAnswer = "";
+    if (Array.isArray(options) && options.length > 0 && item.correct_index != null) {
+      const index = Number(item.correct_index);
+      if (!Number.isNaN(index) && index >= 0 && index < options.length) {
+        correctAnswer = options[index] || "";
+      }
+    }
+
+    // Parse words for sentence ordering
+    let words = [];
+    try {
+      if (item.words_json) {
+        const parsed = JSON.parse(item.words_json);
+        words = Array.isArray(parsed) ? parsed : [];
+      }
+    } catch (e) {
+      console.error("Error parsing words_json:", e);
+      words = [];
+    }
 
     // Format response
     const formattedExercise = {
       id: item.item_id,
-      set_id: item.set.set_id,
-      set_title: item.set.title,
-      jlpt_level: item.set.jlpt_level,
+      set_id: item.set?.set_id || null,
+      set_title: item.set?.title || "",
+      jlpt_level: item.set?.jlpt_level || item.jlpt_level || "N5",
+      exercise_type: item.exercise_type || "multiple_choice",
       audioUrl: resolveAudioUrl(item.audio_url),
       transcript: item.transcript_jp || "",
       translation: item.explain_viet || "",
-      question: item.question,
+      question: item.question || "",
       options: options,
+      words: words,
       correctAnswer: correctAnswer,
     };
 
@@ -391,6 +438,179 @@ export const recordAttempt = async (req, res, next) => {
       },
     });
     return res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// POST /api/listening/check-dictation - Kiểm tra đáp án dictation
+export const checkDictation = async (req, res, next) => {
+  try {
+    const { itemId, userAnswer } = req.body;
+    
+    if (itemId == null || !userAnswer) {
+      return res.status(400).json({ 
+        message: "Thiếu itemId hoặc userAnswer" 
+      });
+    }
+
+    const item = await prisma.listening_items.findUnique({
+      where: { item_id: Number(itemId) },
+      select: {
+        item_id: true,
+        transcript_jp: true,
+        exercise_type: true,
+      },
+    });
+
+    if (!item) {
+      return res.status(404).json({ message: "Không tìm thấy bài tập" });
+    }
+
+    if (item.exercise_type !== "dictation") {
+      return res.status(400).json({ 
+        message: "Bài tập này không phải loại dictation" 
+      });
+    }
+
+    const correctAnswer = (item.transcript_jp || "").trim();
+    const userAnswerTrimmed = userAnswer.trim();
+
+    // Normalize Japanese text for comparison (remove spaces, normalize characters)
+    const normalize = (text) => {
+      return text
+        .replace(/\s+/g, "")
+        .replace(/[。、]/g, "")
+        .toLowerCase();
+    };
+
+    const normalizedCorrect = normalize(correctAnswer);
+    const normalizedUser = normalize(userAnswerTrimmed);
+    const isCorrect = normalizedCorrect === normalizedUser;
+
+    // Calculate accuracy percentage
+    let accuracy = 0;
+    if (normalizedCorrect.length > 0) {
+      let matches = 0;
+      const minLen = Math.min(normalizedCorrect.length, normalizedUser.length);
+      for (let i = 0; i < minLen; i++) {
+        if (normalizedCorrect[i] === normalizedUser[i]) {
+          matches++;
+        }
+      }
+      accuracy = Math.round((matches / normalizedCorrect.length) * 100);
+    }
+
+    // Find differences for highlighting
+    const differences = [];
+    const maxLen = Math.max(normalizedCorrect.length, normalizedUser.length);
+    for (let i = 0; i < maxLen; i++) {
+      if (normalizedCorrect[i] !== normalizedUser[i]) {
+        differences.push(i);
+      }
+    }
+
+    // Save attempt if user is logged in
+    if (req.user) {
+      try {
+        await prisma.listening_attempts.create({
+          data: {
+            user_id: req.user.user_id,
+            item_id: item.item_id,
+            is_correct: isCorrect,
+          },
+        });
+      } catch (err) {
+        console.error("Error saving attempt:", err);
+      }
+    }
+
+    return res.json({
+      isCorrect,
+      accuracy,
+      correctAnswer,
+      differences,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// POST /api/listening/check-sentence-ordering - Kiểm tra đáp án sentence ordering
+export const checkSentenceOrdering = async (req, res, next) => {
+  try {
+    const { itemId, orderedWords } = req.body;
+    
+    if (itemId == null || !Array.isArray(orderedWords)) {
+      return res.status(400).json({ 
+        message: "Thiếu itemId hoặc orderedWords (array)" 
+      });
+    }
+
+    const item = await prisma.listening_items.findUnique({
+      where: { item_id: Number(itemId) },
+      select: {
+        item_id: true,
+        transcript_jp: true,
+        words_json: true,
+        exercise_type: true,
+      },
+    });
+
+    if (!item) {
+      return res.status(404).json({ message: "Không tìm thấy bài tập" });
+    }
+
+    if (item.exercise_type !== "sentence_ordering") {
+      return res.status(400).json({ 
+        message: "Bài tập này không phải loại sentence ordering" 
+      });
+    }
+
+    let correctWords = [];
+    try {
+      if (item.words_json) {
+        correctWords = JSON.parse(item.words_json);
+      } else if (item.transcript_jp) {
+        // Fallback: split transcript by spaces if words_json not available
+        correctWords = item.transcript_jp.trim().split(/\s+/);
+      }
+    } catch (e) {
+      console.error("Error parsing words_json:", e);
+      if (item.transcript_jp) {
+        correctWords = item.transcript_jp.trim().split(/\s+/);
+      }
+    }
+
+    // Normalize for comparison
+    const normalizeWord = (w) => w.trim().replace(/[。、]/g, "");
+    const normalizedCorrect = correctWords.map(normalizeWord);
+    const normalizedUser = orderedWords.map(normalizeWord);
+
+    const isCorrect = 
+      normalizedCorrect.length === normalizedUser.length &&
+      normalizedCorrect.every((word, idx) => word === normalizedUser[idx]);
+
+    // Save attempt if user is logged in
+    if (req.user) {
+      try {
+        await prisma.listening_attempts.create({
+          data: {
+            user_id: req.user.user_id,
+            item_id: item.item_id,
+            is_correct: isCorrect,
+          },
+        });
+      } catch (err) {
+        console.error("Error saving attempt:", err);
+      }
+    }
+
+    return res.json({
+      isCorrect,
+      correctAnswer: correctWords.join(" "),
+      correctWords: normalizedCorrect,
+    });
   } catch (err) {
     next(err);
   }
