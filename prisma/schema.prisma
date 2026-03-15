@@ -234,6 +234,7 @@ model users {
   todos              todos[]
   listening_attempts listening_attempts[]
   speaking_attempts  speaking_attempts[]
+  reading_attempts   reading_attempts[]
 
   @@index([created_at], map: "idx_users_created_at")
   @@index([is_active], map: "idx_users_is_active")
@@ -341,6 +342,47 @@ model listening_attempts {
   @@index([item_id], map: "idx_listening_attempts_item")
 }
 
+model reading_sets {
+  set_id       Int              @id @default(autoincrement())
+  title        String?          @db.VarChar(255)
+  jlpt_level   JLPTLevel
+  is_published Boolean          @default(false)
+  items        reading_items[]
+
+  @@index([jlpt_level], map: "idx_reading_sets_level")
+  @@index([is_published], map: "idx_reading_sets_published")
+}
+
+model reading_items {
+  item_id       Int                 @id @default(autoincrement())
+  set_id        Int
+  exercise_type ReadingExerciseType @default(reading_comprehension)
+  passage       String?             @db.Text
+  question      String?             @db.Text
+  options_json  String?             @db.Text
+  blanks_json   String?             @db.Text
+  correct_index Int?                 @default(0)
+  explain_viet  String?             @db.Text
+  set           reading_sets        @relation(fields: [set_id], references: [set_id], onDelete: Cascade, map: "fk_reading_items_set")
+  attempts      reading_attempts[]
+
+  @@index([set_id], map: "idx_reading_items_set")
+  @@index([exercise_type], map: "idx_reading_items_type")
+}
+
+model reading_attempts {
+  attempt_id  Int            @id @default(autoincrement())
+  user_id     Int
+  item_id     Int
+  is_correct  Boolean
+  created_at  DateTime       @default(now()) @db.Timestamp(0)
+  user        users          @relation(fields: [user_id], references: [user_id], onDelete: Cascade, map: "fk_reading_attempts_user")
+  item        reading_items  @relation(fields: [item_id], references: [item_id], onDelete: Cascade, map: "fk_reading_attempts_item")
+
+  @@index([user_id], map: "idx_reading_attempts_user")
+  @@index([item_id], map: "idx_reading_attempts_item")
+}
+
 enum AdminRole {
   super_admin
   content_manager
@@ -363,6 +405,11 @@ enum ListeningExerciseType {
   multiple_choice
   dictation
   sentence_ordering
+}
+
+enum ReadingExerciseType {
+  reading_comprehension
+  fill_in_the_blank
 }
 
 enum TodoStatus {
