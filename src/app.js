@@ -10,6 +10,7 @@ import grammarRoutes from "./routes/grammar.routes.js";
 import listeningRoutes from "./routes/listening.routes.js";
 import speakingRoutes from "./routes/speaking.routes.js";
 import searchRoutes from "./routes/search.routes.js";
+import studyRoutes from "./routes/study.routes.js";
 
 // import chatRoutes from "./routes/chat.routes.js";
 import { errorHandler } from "./middlewares/error.js";
@@ -47,6 +48,7 @@ app.use("/api/listening", listeningRoutes);
 // app.use("/api/chat", chatRoutes);
 app.use("/api/speaking", speakingRoutes);
 app.use("/api", searchRoutes);
+app.use("/api/study", studyRoutes);
 
 app.use(errorHandler);
 
