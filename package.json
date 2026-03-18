@@ -2,20 +2,28 @@
   "name": "japanese-ai-backend",
   "version": "1.0.0",
   "type": "module",
-  "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "nodemon src/server.js",
     "build": "echo \"(JS thuần, không cần build)\"",
     "start": "node src/server.js",
+
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate deploy",
+    "prisma:push": "prisma db push",
+
+    "db:init": "npm run prisma:generate && npm run prisma:push",
+    "db:bootstrap": "npm run prisma:generate && npm run prisma:migrate && npm run seed:speaking && npm run seed:listening",
+    "db:bootstrap:push": "npm run db:init && npm run seed:speaking && npm run seed:listening",
+
     "prisma:studio": "npx prisma studio",
+
     "test:tts": "node test-tts.js",
-    "generate:audio": "node generate-all-audio.js"
+    "generate:audio": "node generate-all-audio.js",
+    "seed:speaking": "node scripts/seed-speaking-phrases.js",
+    "seed:listening": "node scripts/seed-listening.js",
+    "seed:reading": "node scripts/seed-reading.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
     "@google-cloud/text-to-speech": "^6.4.0",
     "@google/generative-ai": "^0.24.1",
@@ -25,13 +33,13 @@
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
+    "fluent-ffmpeg": "^2.1.3",
     "jsonwebtoken": "^9.0.2",
     "kuromoji": "^0.1.2",
     "microsoft-cognitiveservices-speech-sdk": "^1.47.0",
     "multer": "^2.0.2",
     "nodemailer": "^6.10.1",
     "openai": "^6.9.1",
-    "path": "^0.12.7",
     "zod": "^3.25.76"
   },
   "devDependencies": {

@@ -49,6 +49,19 @@ function toPublicUser(u) {
 
 export const register = async (req, res, next) => {
   try {
+    console.log("Register request received:", {
+      body: req.body,
+      headers: req.headers["content-type"],
+      method: req.method
+    });
+    
+    if (!req.body || Object.keys(req.body).length === 0) {
+      return res.status(400).json({
+        message: "Request body is empty or invalid",
+        errors: [{ path: ["body"], message: "Request body is required" }]
+      });
+    }
+    
     const data = registerSchema.parse(req.body);
 
     const exists = await prisma.users.findUnique({

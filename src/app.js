@@ -10,8 +10,11 @@ import topicRoutes from "./routes/topics.routes.js";
 import grammarRoutes from "./routes/grammar.routes.js";
 import chatRoutes from "./routes/chat.routes.js";
 import listeningRoutes from "./routes/listening.routes.js";
+import readingRoutes from "./routes/reading.routes.js";
+import speakingRoutes from "./routes/speaking.routes.js";
 import searchRoutes from "./routes/search.routes.js";
 import adminRoutes from "./routes/admin.routes.js";
+import studyRoutes from "./routes/study.routes.js";
 
 // import chatRoutes from "./routes/chat.routes.js";
 import profileRoutes from "./routes/profile.routes.js";
@@ -58,7 +61,14 @@ app.use(
   })
 );
 
-app.use(express.json());
+const jsonParser = express.json();
+
+app.use((req, res, next) => {
+  if (req.path === "/api/speaking/practice") {
+    return next();
+  }
+  return jsonParser(req, res, next);
+});
 
 // Serve static files (audio files)
 app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
@@ -83,6 +93,11 @@ app.use("/api/personal-room", personalRoomRoutes);
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 app.use("/static", express.static(path.join(process.cwd(), "public")));
 app.use("/api/diaries", diaryRoutes);
+app.use("/api/reading", readingRoutes);
+// app.use("/api/chat", chatRoutes);
+app.use("/api/speaking", speakingRoutes);
+app.use("/api", searchRoutes);
+app.use("/api/study", studyRoutes);
 
 app.use(errorHandler);
 

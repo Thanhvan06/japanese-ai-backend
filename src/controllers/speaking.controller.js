@@ -1,0 +1,421 @@
+import { prisma } from "../prisma.js";
+import { transcribeAudio } from "../services/stt.service.js";
+import { scorePronunciation, scorePronunciationAdvanced } from "../services/scoring.service.js";
+import { generateAudioFromText } from "../services/tts.service.js";
+import path from "path";
+import { fileURLToPath } from "url";
+import fs from "fs";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+/**
+ * GET /api/speaking/phrases
+ * Lấy danh sách câu mẫu để luyện nói
+ */
+export const getSpeakingPhrases = async (req, res, next) => {
+  try {
+    const { level, topic, limit = 50, offset = 0 } = req.query;
+
+    // Kiểm tra prisma client có model speaking_phrases không
+    if (!prisma.speaking_phrases) {
+      return res.status(500).json({ 
+        message: "Prisma client chưa được generate. Vui lòng chạy: npx prisma generate",
+        error: "speaking_phrases model not found in Prisma client"
+      });
+    }
+
+    const where = {
+      is_published: true,
+    };
+
+    if (level) {
+      where.jlpt_level = level;
+    }
+
+    if (topic) {
+      where.topic = topic;
+    }
+
+    const phrases = await prisma.speaking_phrases.findMany({
+      where,
+      take: parseInt(limit),
+      skip: parseInt(offset),
+      orderBy: { created_at: "desc" },
+    });
+
+    return res.json({
+      phrases,
+      total: phrases.length,
+    });
+  } catch (err) {
+    console.error("Error in getSpeakingPhrases:", err);
+    // Kiểm tra nếu lỗi do model chưa tồn tại (chưa migrate)
+    if (err.message && (err.message.includes("speaking_phrases") || err.message.includes("Unknown model"))) {
+      return res.status(500).json({ 
+        message: "Database chưa được migrate hoặc Prisma client chưa được generate. Vui lòng chạy: npx prisma migrate dev && npx prisma generate",
+        error: err.message 
+      });
+    }
+    next(err);
+  }
+};
+
+/**
+ * GET /api/speaking/phrases/:id
+ * Lấy chi tiết một câu mẫu
+ */
+export const getSpeakingPhraseDetail = async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+
+    if (Number.isNaN(id)) {
+      return res.status(400).json({ message: "phraseId không hợp lệ" });
+    }
+
+    const phrase = await prisma.speaking_phrases.findUnique({
+      where: { phrase_id: id },
+    });
+
+    if (!phrase) {
+      return res.status(404).json({ message: "Không tìm thấy câu mẫu" });
+    }
+
+    return res.json(phrase);
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * POST /api/speaking/phrases/:id/generate-audio
+ * Generate audio cho câu mẫu nếu chưa có
+ */
+export const generatePhraseAudio = async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+
+    if (Number.isNaN(id)) {
+      return res.status(400).json({ message: "phraseId không hợp lệ" });
+    }
+
+    const phrase = await prisma.speaking_phrases.findUnique({
+      where: { phrase_id: id },
+    });
+
+    if (!phrase) {
+      return res.status(404).json({ message: "Không tìm thấy câu mẫu" });
+    }
+
+    // Nếu đã có audio, trả về luôn
+    if (phrase.audio_url) {
+      return res.json({
+        audioUrl: phrase.audio_url,
+        message: "Audio đã tồn tại",
+      });
+    }
+
+    // Generate audio mới
+    try {
+      const outputFilename = `speaking-phrase-${id}`;
+      const result = await generateAudioFromText(phrase.jp, outputFilename);
+
+      // Cập nhật audio_url vào database
+      await prisma.speaking_phrases.update({
+        where: { phrase_id: id },
+        data: { audio_url: result.url },
+      });
+
+      return res.json({
+        audioUrl: result.url,
+        message: "Đã generate audio thành công",
+      });
+    } catch (ttsError) {
+      console.error("Error generating audio:", ttsError);
+      return res.status(500).json({
+        message: "Lỗi khi generate audio",
+        error: ttsError.message,
+      });
+    }
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * POST /api/speaking/practice
+ * Upload audio, transcribe và chấm điểm
+ * Body: multipart/form-data với file audio và phraseId
+ */
+export const practiceSpeaking = async (req, res, next) => {
+  try {
+    const phraseId = req.body?.phraseId || req.query?.phraseId;
+    const audioFile = req.file;
+
+    if (!audioFile) {
+      return res.status(400).json({ message: "Không có file audio được upload" });
+    }
+
+    if (!phraseId) {
+      return res.status(400).json({ message: "Thiếu phraseId" });
+    }
+
+    const phraseIdNum = Number(phraseId);
+    if (Number.isNaN(phraseIdNum)) {
+      return res.status(400).json({ message: "phraseId không hợp lệ" });
+    }
+
+    // Lấy câu mẫu từ database
+    const phrase = await prisma.speaking_phrases.findUnique({
+      where: { phrase_id: phraseIdNum },
+    });
+
+    if (!phrase) {
+      // Xóa file đã upload nếu không tìm thấy phrase
+      if (audioFile.path && fs.existsSync(audioFile.path)) {
+        fs.unlinkSync(audioFile.path);
+      }
+      return res.status(404).json({ message: "Không tìm thấy câu mẫu" });
+    }
+
+    // Lấy user_id từ token (nếu có)
+    const userId = req.user?.user_id || null;
+
+    try {
+      // Kiểm tra file audio có tồn tại không
+      if (!fs.existsSync(audioFile.path)) {
+        throw new Error("File audio không tồn tại sau khi upload");
+      }
+
+      // 1. Transcribe audio thành text
+      console.log("Đang transcribe audio từ file:", audioFile.path);
+      let transcribedText;
+      try {
+        transcribedText = await transcribeAudio(audioFile.path);
+      } catch (transcribeError) {
+        console.error("Lỗi transcribe:", transcribeError);
+        // Xóa file nếu có lỗi
+        if (audioFile.path && fs.existsSync(audioFile.path)) {
+          try {
+            fs.unlinkSync(audioFile.path);
+          } catch (e) {
+            console.error("Lỗi khi xóa file:", e);
+          }
+        }
+        throw new Error(`Lỗi transcribe audio: ${transcribeError.message}`);
+      }
+
+      // 2. Chấm điểm so sánh với câu mẫu
+      console.log("Đang chấm điểm...");
+      const scoreResult = scorePronunciationAdvanced(phrase.jp, transcribedText);
+
+      // 3. Tạo URL cho audio file
+      const baseUrl = process.env.BASE_URL || "http://localhost:4000";
+      const audioUrl = `${baseUrl}/uploads/audio/${audioFile.filename}`;
+
+      // 4. Lưu attempt vào database (nếu có user)
+      let attempt = null;
+      if (userId) {
+        attempt = await prisma.speaking_attempts.create({
+          data: {
+            user_id: userId,
+            phrase_id: phraseIdNum,
+            audio_url: audioUrl,
+            transcribed_text: transcribedText,
+            accuracy_score: scoreResult.accuracy,
+            details_json: JSON.stringify(scoreResult),
+          },
+        });
+      }
+
+      // 5. Trả về kết quả
+      return res.json({
+        success: true,
+        phrase: {
+          id: phrase.phrase_id,
+          jp: phrase.jp,
+          romaji: phrase.romaji,
+          vi: phrase.vi,
+        },
+        transcribedText,
+        score: {
+          accuracy: scoreResult.accuracy,
+          similarity: scoreResult.similarity,
+          wordAccuracy: scoreResult.wordAccuracy,
+          feedback: scoreResult.feedback,
+          errors: scoreResult.errors,
+        },
+        audioUrl,
+        attemptId: attempt?.attempt_id || null,
+      });
+    } catch (error) {
+      // Xóa file nếu có lỗi
+      if (audioFile.path && fs.existsSync(audioFile.path)) {
+        try {
+          fs.unlinkSync(audioFile.path);
+        } catch (e) {
+          console.error("Lỗi khi xóa file:", e);
+        }
+      }
+      throw error;
+    }
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * GET /api/speaking/attempts
+ * Lấy lịch sử luyện nói của user
+ */
+export const getSpeakingAttempts = async (req, res, next) => {
+  try {
+    const userId = req.user?.user_id;
+
+    if (!userId) {
+      return res.status(401).json({ message: "Chưa đăng nhập" });
+    }
+
+    const { limit = 20, offset = 0 } = req.query;
+
+    const attempts = await prisma.speaking_attempts.findMany({
+      where: { user_id: userId },
+      include: {
+        speaking_phrases: {
+          select: {
+            phrase_id: true,
+            jp: true,
+            romaji: true,
+            vi: true,
+            topic: true,
+          },
+        },
+      },
+      orderBy: { created_at: "desc" },
+      take: parseInt(limit),
+      skip: parseInt(offset),
+    });
+
+    return res.json({
+      attempts,
+      total: attempts.length,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * GET /api/speaking/stats
+ * Lấy thống kê luyện nói của user
+ */
+export const getSpeakingStats = async (req, res, next) => {
+  try {
+    const userId = req.user?.user_id;
+
+    if (!userId) {
+      return res.status(401).json({ message: "Chưa đăng nhập" });
+    }
+
+    const totalAttempts = await prisma.speaking_attempts.count({
+      where: { user_id: userId },
+    });
+
+    const avgScore = await prisma.speaking_attempts.aggregate({
+      where: { user_id: userId },
+      _avg: {
+        accuracy_score: true,
+      },
+    });
+
+    // Lấy attempts gần đây với thông tin phrase
+    const recentAttempts = await prisma.speaking_attempts.findMany({
+      where: { user_id: userId },
+      include: {
+        speaking_phrases: {
+          select: {
+            phrase_id: true,
+            jp: true,
+            romaji: true,
+            topic: true,
+          },
+        },
+      },
+      orderBy: { created_at: "desc" },
+      take: 10,
+    });
+
+    // Thống kê theo ngày (7 ngày gần đây)
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    sevenDaysAgo.setHours(0, 0, 0, 0);
+
+    // Lấy tất cả attempts trong 7 ngày qua
+    const recentAttemptsForStats = await prisma.speaking_attempts.findMany({
+      where: {
+        user_id: userId,
+        created_at: {
+          gte: sevenDaysAgo,
+        },
+      },
+      select: {
+        accuracy_score: true,
+        created_at: true,
+      },
+    });
+
+    // Nhóm theo ngày
+    const dailyProgress = {};
+    recentAttemptsForStats.forEach((attempt) => {
+      const date = new Date(attempt.created_at);
+      date.setHours(0, 0, 0, 0);
+      const dateKey = date.toISOString().split("T")[0];
+
+      if (!dailyProgress[dateKey]) {
+        dailyProgress[dateKey] = {
+          date: dateKey,
+          count: 0,
+          totalScore: 0,
+        };
+      }
+      dailyProgress[dateKey].count += 1;
+      dailyProgress[dateKey].totalScore += attempt.accuracy_score || 0;
+    });
+
+    // Tính average và tạo array
+    const dailyProgressArray = Object.values(dailyProgress)
+      .map((day) => ({
+        date: day.date,
+        count: day.count,
+        avgScore: day.count > 0 ? day.totalScore / day.count : 0,
+      }))
+      .sort((a, b) => new Date(b.date) - new Date(a.date))
+      .slice(0, 7);
+
+    const todayKey = new Date().toISOString().split("T")[0];
+    const todayStats = dailyProgress[todayKey];
+
+    return res.json({
+      totalAttempts,
+      todayAttempts: todayStats ? todayStats.count : 0,
+      averageScore: avgScore._avg.accuracy_score || 0,
+      recentAttempts: recentAttempts.map((a) => ({
+        attemptId: a.attempt_id,
+        score: a.accuracy_score,
+        date: a.created_at,
+        phrase: a.speaking_phrases
+          ? {
+              id: a.speaking_phrases.phrase_id,
+              jp: a.speaking_phrases.jp,
+              romaji: a.speaking_phrases.romaji,
+              topic: a.speaking_phrases.topic,
+            }
+          : null,
+      })),
+      dailyProgress: dailyProgressArray,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+

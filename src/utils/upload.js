@@ -6,16 +6,25 @@ import fs from "fs";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Đảm bảo thư mục uploads tồn tại
-const uploadsDir = path.join(__dirname, "../../uploads/audio");
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
+const audioDir = path.join(__dirname, "../../uploads/audio");
+const recordingsDir = path.join(__dirname, "../../uploads/recordings");
+
+if (!fs.existsSync(audioDir)) {
+  fs.mkdirSync(audioDir, { recursive: true });
+}
+
+if (!fs.existsSync(recordingsDir)) {
+  fs.mkdirSync(recordingsDir, { recursive: true });
 }
 
 // Cấu hình storage cho multer
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, uploadsDir);
+    if (req.path === "/api/speaking/practice") {
+      cb(null, recordingsDir);
+      return;
+    }
+    cb(null, audioDir);
   },
   filename: (req, file, cb) => {
     // Tạo tên file unique: timestamp + random + extension
