@@ -419,3 +419,258 @@ export const getSpeakingStats = async (req, res, next) => {
   }
 };
 
+// ADMIN ENDPOINTS
+
+export const getAdminSpeakingPhrases = async (req, res, next) => {
+  try {
+    const { level, topic, page = 1, limit = 20 } = req.query;
+
+    if (!prisma.speaking_phrases) {
+      return res.status(500).json({
+        message:
+          "Prisma client chưa được generate. Vui lòng chạy: npx prisma generate",
+        error: "speaking_phrases model not found in Prisma client",
+      });
+    }
+
+    const where = {};
+    if (level) {
+      where.jlpt_level = level;
+    }
+    if (topic) {
+      where.topic = topic;
+    }
+
+    const pageNum = Math.max(1, Number(page) || 1);
+    const limitNum = Math.min(100, Number(limit) || 20);
+
+    const [phrases, total] = await Promise.all([
+      prisma.speaking_phrases.findMany({
+        where,
+        orderBy: { created_at: "desc" },
+        skip: (pageNum - 1) * limitNum,
+        take: limitNum,
+      }),
+      prisma.speaking_phrases.count({ where }),
+    ]);
+
+    const phraseIds = phrases.map((p) => p.phrase_id);
+    let statsByPhrase = {};
+
+    if (phraseIds.length > 0) {
+      const attempts = await prisma.speaking_attempts.findMany({
+        where: { phrase_id: { in: phraseIds } },
+        select: {
+          phrase_id: true,
+          accuracy_score: true,
+        },
+      });
+
+      statsByPhrase = attempts.reduce((acc, a) => {
+        if (!acc[a.phrase_id]) {
+          acc[a.phrase_id] = { total: 0, sumScore: 0 };
+        }
+        acc[a.phrase_id].total += 1;
+        acc[a.phrase_id].sumScore += a.accuracy_score || 0;
+        return acc;
+      }, {});
+    }
+
+    const items = phrases.map((p) => {
+      const stats = statsByPhrase[p.phrase_id] || {
+        total: 0,
+        sumScore: 0,
+      };
+      const avgScore =
+        stats.total > 0 ? Math.round(stats.sumScore / stats.total) : 0;
+      return {
+        phrase_id: p.phrase_id,
+        jp: p.jp,
+        romaji: p.romaji,
+        vi: p.vi,
+        topic: p.topic,
+        jlpt_level: p.jlpt_level,
+        is_published: p.is_published,
+        audio_url: p.audio_url,
+        created_at: p.created_at,
+        attempts: stats.total,
+        averageScore: avgScore,
+      };
+    });
+
+    return res.json({ items, total, page: pageNum, limit: limitNum });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const createAdminSpeakingPhrase = async (req, res, next) => {
+  try {
+    const { jp, romaji, vi, topic, jlpt_level, is_published } = req.body;
+
+    if (!jp || !vi) {
+      return res.status(400).json({ message: "Thiếu jp hoặc vi" });
+    }
+
+    const created = await prisma.speaking_phrases.create({
+      data: {
+        jp,
+        romaji: romaji || null,
+        vi,
+        topic: topic || null,
+        jlpt_level: jlpt_level || null,
+        is_published: is_published !== undefined ? Boolean(is_published) : true,
+      },
+    });
+
+    return res.status(201).json(created);
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const updateAdminSpeakingPhrase = async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (Number.isNaN(id)) {
+      return res.status(400).json({ message: "phraseId không hợp lệ" });
+    }
+
+    const { jp, romaji, vi, topic, jlpt_level, is_published, audio_url } =
+      req.body;
+    const data = {};
+
+    if (jp !== undefined) data.jp = jp;
+    if (romaji !== undefined) data.romaji = romaji;
+    if (vi !== undefined) data.vi = vi;
+    if (topic !== undefined) data.topic = topic;
+    if (jlpt_level !== undefined) data.jlpt_level = jlpt_level;
+    if (is_published !== undefined) {
+      data.is_published = Boolean(is_published);
+    }
+    if (audio_url !== undefined) data.audio_url = audio_url;
+
+    const updated = await prisma.speaking_phrases.update({
+      where: { phrase_id: id },
+      data,
+    });
+
+    return res.json(updated);
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const deleteAdminSpeakingPhrase = async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (Number.isNaN(id)) {
+      return res.status(400).json({ message: "phraseId không hợp lệ" });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.speaking_attempts.deleteMany({
+        where: { phrase_id: id },
+      });
+      await tx.speaking_phrases.delete({
+        where: { phrase_id: id },
+      });
+    });
+
+    return res.json({ message: "Đã xóa câu luyện nói" });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const getAdminSpeakingStatsOverview = async (req, res, next) => {
+  try {
+    const { level, topic } = req.query;
+
+    const wherePhrase = {};
+    if (level) {
+      wherePhrase.jlpt_level = level;
+    }
+    if (topic) {
+      wherePhrase.topic = topic;
+    }
+
+    const phrases = await prisma.speaking_phrases.findMany({
+      where: wherePhrase,
+      select: {
+        phrase_id: true,
+        jp: true,
+        vi: true,
+        topic: true,
+      },
+    });
+
+    const phraseIds = phrases.map((p) => p.phrase_id);
+    if (phraseIds.length === 0) {
+      return res.json({
+        totalPhrases: 0,
+        totalAttempts: 0,
+        averageScore: 0,
+        hardestPhrases: [],
+      });
+    }
+
+    const attempts = await prisma.speaking_attempts.findMany({
+      where: { phrase_id: { in: phraseIds } },
+      select: {
+        phrase_id: true,
+        accuracy_score: true,
+      },
+    });
+
+    const byPhrase = attempts.reduce((acc, a) => {
+      if (!acc[a.phrase_id]) {
+        acc[a.phrase_id] = { total: 0, sumScore: 0 };
+      }
+      acc[a.phrase_id].total += 1;
+      acc[a.phrase_id].sumScore += a.accuracy_score || 0;
+      return acc;
+    }, {});
+
+    let totalAttempts = 0;
+    let sumAllScores = 0;
+
+    const withStats = phrases.map((p) => {
+      const stats = byPhrase[p.phrase_id] || {
+        total: 0,
+        sumScore: 0,
+      };
+      totalAttempts += stats.total;
+      sumAllScores += stats.sumScore;
+      const avgScore =
+        stats.total > 0 ? Math.round(stats.sumScore / stats.total) : 0;
+      return {
+        phrase_id: p.phrase_id,
+        jp: p.jp,
+        vi: p.vi,
+        topic: p.topic,
+        attempts: stats.total,
+        averageScore: avgScore,
+      };
+    });
+
+    const averageScore =
+      totalAttempts > 0 ? Math.round(sumAllScores / totalAttempts) : 0;
+
+    const hardestPhrases = withStats
+      .filter((p) => p.attempts >= 5)
+      .sort((a, b) => a.averageScore - b.averageScore)
+      .slice(0, 5);
+
+    return res.json({
+      totalPhrases: phrases.length,
+      totalAttempts,
+      averageScore,
+      hardestPhrases,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+

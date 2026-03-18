@@ -655,3 +655,534 @@ export const getProgress = async (req, res, next) => {
     next(err);
   }
 };
+
+// ADMIN ENDPOINTS
+
+export const getAdminListeningSets = async (req, res, next) => {
+  try {
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.min(100, Number(req.query.limit) || 20);
+    const level = req.query.level;
+
+    const where = {};
+    if (level) {
+      where.jlpt_level = level;
+    }
+
+    const [sets, total] = await Promise.all([
+      prisma.listening_sets.findMany({
+        where,
+        orderBy: { set_id: "asc" },
+        include: {
+          items: {
+            select: { item_id: true },
+          },
+        },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      prisma.listening_sets.count({ where }),
+    ]);
+
+    const allItemIds = sets.flatMap((s) => s.items.map((i) => i.item_id));
+    let attemptsByItem = {};
+
+    if (allItemIds.length > 0) {
+      const attempts = await prisma.listening_attempts.findMany({
+        where: { item_id: { in: allItemIds } },
+        select: {
+          item_id: true,
+          is_correct: true,
+        },
+      });
+
+      attemptsByItem = attempts.reduce((acc, a) => {
+        if (!acc[a.item_id]) {
+          acc[a.item_id] = { total: 0, correct: 0 };
+        }
+        acc[a.item_id].total += 1;
+        if (a.is_correct) {
+          acc[a.item_id].correct += 1;
+        }
+        return acc;
+      }, {});
+    }
+
+    const data = sets.map((set) => {
+      const itemIds = set.items.map((i) => i.item_id);
+      let totalAttempts = 0;
+      let correctAttempts = 0;
+
+      itemIds.forEach((id) => {
+        const stats = attemptsByItem[id];
+        if (stats) {
+          totalAttempts += stats.total;
+          correctAttempts += stats.correct;
+        }
+      });
+
+      const accuracy =
+        totalAttempts > 0
+          ? Math.round((correctAttempts / totalAttempts) * 100)
+          : 0;
+
+      return {
+        set_id: set.set_id,
+        title: set.title,
+        jlpt_level: set.jlpt_level,
+        description: set.description,
+        is_published: set.is_published,
+        created_at: set.created_at,
+        itemsCount: set.items.length,
+        totalAttempts,
+        accuracy,
+      };
+    });
+
+    return res.json({ items: data, total, page, limit });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const createAdminListeningSet = async (req, res, next) => {
+  try {
+    const { title, jlpt_level, is_published } = req.body;
+
+    if (!title || !jlpt_level) {
+      return res
+        .status(400)
+        .json({ message: "Thiếu title hoặc jlpt_level" });
+    }
+
+    const created = await prisma.listening_sets.create({
+      data: {
+        title,
+        jlpt_level,
+        is_published: Boolean(is_published),
+      },
+    });
+
+    return res.status(201).json(created);
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const updateAdminListeningSet = async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (Number.isNaN(id)) {
+      return res.status(400).json({ message: "setId không hợp lệ" });
+    }
+
+    const { title, jlpt_level, is_published } = req.body;
+    const data = {};
+
+    if (title !== undefined) data.title = title;
+    if (jlpt_level !== undefined) data.jlpt_level = jlpt_level;
+    if (is_published !== undefined) {
+      data.is_published = Boolean(is_published);
+    }
+
+    const updated = await prisma.listening_sets.update({
+      where: { set_id: id },
+      data,
+    });
+
+    return res.json(updated);
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const deleteAdminListeningSet = async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (Number.isNaN(id)) {
+      return res.status(400).json({ message: "setId không hợp lệ" });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      const items = await tx.listening_items.findMany({
+        where: { set_id: id },
+        select: { item_id: true },
+      });
+      const itemIds = items.map((i) => i.item_id);
+
+      if (itemIds.length > 0) {
+        await tx.listening_attempts.deleteMany({
+          where: { item_id: { in: itemIds } },
+        });
+      }
+
+      await tx.listening_items.deleteMany({ where: { set_id: id } });
+      await tx.listening_sets.delete({ where: { set_id: id } });
+    });
+
+    return res.json({ message: "Đã xóa bộ bài nghe" });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const getAdminListeningItemsBySet = async (req, res, next) => {
+  try {
+    const setId = Number(req.params.setId);
+    if (Number.isNaN(setId)) {
+      return res.status(400).json({ message: "setId không hợp lệ" });
+    }
+
+    const items = await prisma.listening_items.findMany({
+      where: { set_id: setId },
+      orderBy: { item_id: "asc" },
+    });
+
+    const itemIds = items.map((i) => i.item_id);
+    let attemptsByItem = {};
+
+    if (itemIds.length > 0) {
+      const attempts = await prisma.listening_attempts.findMany({
+        where: { item_id: { in: itemIds } },
+        select: {
+          item_id: true,
+          is_correct: true,
+        },
+      });
+
+      attemptsByItem = attempts.reduce((acc, a) => {
+        if (!acc[a.item_id]) {
+          acc[a.item_id] = { total: 0, correct: 0 };
+        }
+        acc[a.item_id].total += 1;
+        if (a.is_correct) {
+          acc[a.item_id].correct += 1;
+        }
+        return acc;
+      }, {});
+    }
+
+    const formatted = items.map((item) => {
+      let options = [];
+      let words = [];
+      try {
+        if (item.options_json) {
+          options = JSON.parse(item.options_json);
+        }
+      } catch {
+        options = [];
+      }
+      try {
+        if (item.words_json) {
+          words = JSON.parse(item.words_json);
+        }
+      } catch {
+        words = [];
+      }
+
+      const stats = attemptsByItem[item.item_id] || {
+        total: 0,
+        correct: 0,
+      };
+      const accuracy =
+        stats.total > 0
+          ? Math.round((stats.correct / stats.total) * 100)
+          : 0;
+
+      return {
+        item_id: item.item_id,
+        set_id: item.set_id,
+        exercise_type: item.exercise_type,
+        question: item.question,
+        audio_url: resolveAudioUrl(item.audio_url),
+        transcript_jp: item.transcript_jp,
+        explain_viet: item.explain_viet,
+        options,
+        words,
+        correct_index: item.correct_index,
+        totalAttempts: stats.total,
+        accuracy,
+      };
+    });
+
+    return res.json({ items: formatted });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const createAdminListeningItem = async (req, res, next) => {
+  try {
+    const setId = Number(req.params.setId);
+    if (Number.isNaN(setId)) {
+      return res.status(400).json({ message: "setId không hợp lệ" });
+    }
+
+    const {
+      exercise_type,
+      question,
+      audio_url,
+      transcript_jp,
+      explain_viet,
+      options,
+      words,
+      correct_index,
+    } = req.body;
+
+    if (!exercise_type || !question) {
+      return res
+        .status(400)
+        .json({ message: "Thiếu exercise_type hoặc question" });
+    }
+
+    const created = await prisma.listening_items.create({
+      data: {
+        set_id: setId,
+        exercise_type,
+        question,
+        audio_url: audio_url || null,
+        transcript_jp: transcript_jp || null,
+        explain_viet: explain_viet || null,
+        options_json: options ? JSON.stringify(options) : null,
+        words_json: words ? JSON.stringify(words) : null,
+        correct_index:
+          correct_index !== undefined && correct_index !== null
+            ? Number(correct_index)
+            : null,
+      },
+    });
+
+    return res.status(201).json(created);
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const updateAdminListeningItem = async (req, res, next) => {
+  try {
+    const itemId = Number(req.params.itemId);
+    if (Number.isNaN(itemId)) {
+      return res.status(400).json({ message: "itemId không hợp lệ" });
+    }
+
+    const {
+      exercise_type,
+      question,
+      audio_url,
+      transcript_jp,
+      explain_viet,
+      options,
+      words,
+      correct_index,
+    } = req.body;
+
+    const data = {};
+
+    if (exercise_type !== undefined) data.exercise_type = exercise_type;
+    if (question !== undefined) data.question = question;
+    if (audio_url !== undefined) data.audio_url = audio_url;
+    if (transcript_jp !== undefined) data.transcript_jp = transcript_jp;
+    if (explain_viet !== undefined) data.explain_viet = explain_viet;
+    if (options !== undefined) {
+      data.options_json = options ? JSON.stringify(options) : null;
+    }
+    if (words !== undefined) {
+      data.words_json = words ? JSON.stringify(words) : null;
+    }
+    if (correct_index !== undefined) {
+      data.correct_index =
+        correct_index === null || correct_index === ""
+          ? null
+          : Number(correct_index);
+    }
+
+    const updated = await prisma.listening_items.update({
+      where: { item_id: itemId },
+      data,
+    });
+
+    return res.json(updated);
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const deleteAdminListeningItem = async (req, res, next) => {
+  try {
+    const itemId = Number(req.params.itemId);
+    if (Number.isNaN(itemId)) {
+      return res.status(400).json({ message: "itemId không hợp lệ" });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.listening_attempts.deleteMany({
+        where: { item_id: itemId },
+      });
+      await tx.listening_items.delete({
+        where: { item_id: itemId },
+      });
+    });
+
+    return res.json({ message: "Đã xóa câu hỏi nghe" });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const getAdminListeningStatsOverview = async (req, res, next) => {
+  try {
+    const level = req.query.level;
+
+    const whereSets = {};
+    if (level) {
+      whereSets.jlpt_level = level;
+    }
+
+    const sets = await prisma.listening_sets.findMany({
+      where: whereSets,
+      include: {
+        items: {
+          select: { item_id: true, question: true, set_id: true },
+        },
+      },
+    });
+
+    const allItems = sets.flatMap((set) =>
+      set.items.map((item) => ({
+        item_id: item.item_id,
+        question: item.question,
+        set_id: set.set_id,
+        set_title: set.title,
+      }))
+    );
+
+    const itemIds = allItems.map((i) => i.item_id);
+    if (itemIds.length === 0) {
+      return res.json({
+        totalSets: sets.length,
+        totalItems: 0,
+        totalAttempts: 0,
+        averageAccuracy: 0,
+        hardestItems: [],
+      });
+    }
+
+    const attempts = await prisma.listening_attempts.findMany({
+      where: { item_id: { in: itemIds } },
+      select: {
+        item_id: true,
+        is_correct: true,
+      },
+    });
+
+    const byItem = attempts.reduce((acc, a) => {
+      if (!acc[a.item_id]) {
+        acc[a.item_id] = { total: 0, correct: 0 };
+      }
+      acc[a.item_id].total += 1;
+      if (a.is_correct) {
+        acc[a.item_id].correct += 1;
+      }
+      return acc;
+    }, {});
+
+    let totalAttempts = 0;
+    let totalCorrect = 0;
+
+    const withStats = allItems.map((item) => {
+      const stats = byItem[item.item_id] || { total: 0, correct: 0 };
+      totalAttempts += stats.total;
+      totalCorrect += stats.correct;
+      const accuracy =
+        stats.total > 0
+          ? Math.round((stats.correct / stats.total) * 100)
+          : 0;
+      return {
+        ...item,
+        totalAttempts: stats.total,
+        accuracy,
+      };
+    });
+
+    const averageAccuracy =
+      totalAttempts > 0
+        ? Math.round((totalCorrect / totalAttempts) * 100)
+        : 0;
+
+    const hardestItems = withStats
+      .filter((i) => i.totalAttempts >= 5)
+      .sort((a, b) => a.accuracy - b.accuracy)
+      .slice(0, 5);
+
+    return res.json({
+      totalSets: sets.length,
+      totalItems: allItems.length,
+      totalAttempts,
+      averageAccuracy,
+      hardestItems,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const getAdminListeningStatsBySet = async (req, res, next) => {
+  try {
+    const setId = Number(req.params.setId);
+    if (Number.isNaN(setId)) {
+      return res.status(400).json({ message: "setId không hợp lệ" });
+    }
+
+    const items = await prisma.listening_items.findMany({
+      where: { set_id: setId },
+      select: {
+        item_id: true,
+        question: true,
+      },
+    });
+
+    const itemIds = items.map((i) => i.item_id);
+    if (itemIds.length === 0) {
+      return res.json({ items: [] });
+    }
+
+    const attempts = await prisma.listening_attempts.findMany({
+      where: { item_id: { in: itemIds } },
+      select: {
+        item_id: true,
+        is_correct: true,
+      },
+    });
+
+    const byItem = attempts.reduce((acc, a) => {
+      if (!acc[a.item_id]) {
+        acc[a.item_id] = { total: 0, correct: 0 };
+      }
+      acc[a.item_id].total += 1;
+      if (a.is_correct) {
+        acc[a.item_id].correct += 1;
+      }
+      return acc;
+    }, {});
+
+    const mapped = items.map((item) => {
+      const stats = byItem[item.item_id] || { total: 0, correct: 0 };
+      const accuracy =
+        stats.total > 0
+          ? Math.round((stats.correct / stats.total) * 100)
+          : 0;
+      return {
+        item_id: item.item_id,
+        question: item.question,
+        totalAttempts: stats.total,
+        correctAttempts: stats.correct,
+        accuracy,
+      };
+    });
+
+    return res.json({ items: mapped });
+  } catch (err) {
+    next(err);
+  }
+};
+
