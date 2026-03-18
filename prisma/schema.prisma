@@ -19,6 +19,19 @@ model admins {
   @@index([assigned_by], map: "fk_admins_assigned_by")
 }
 
+model admin_audit {
+  audit_id       Int      @id @default(autoincrement())
+  admin_user_id  Int
+  target_user_id Int?
+  action         String
+  details        String?  @db.LongText
+  created_at     DateTime @default(now()) @db.Timestamp(0)
+  admin_user     users    @relation(fields: [admin_user_id], references: [user_id], map: "fk_audit_admin")
+
+  @@index([admin_user_id], map: "idx_audit_admin")
+  @@index([target_user_id], map: "idx_audit_target")
+}
+
 model chatmessages {
   message_id   Int                      @id @default(autoincrement())
   session_id   Int
@@ -203,9 +216,10 @@ model study_sessions {
   user_id          Int
   source           study_sessions_source
   source_id        Int?
-  start_time       DateTime              @db.Timestamp(0)
-  end_time         DateTime              @db.Timestamp(0)
-  duration_seconds Int
+  start_time       DateTime              @default(now()) @db.Timestamp(0)
+  end_time         DateTime?             @db.Timestamp(0)
+  duration_seconds Int?
+
   users            users                 @relation(fields: [user_id], references: [user_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_study_sessions_user")
 
   @@index([user_id, start_time], map: "idx_study_user_time")
@@ -235,12 +249,6 @@ model todos {
   @@index([user_id], map: "fk_todos_user")
 }
 
-model topics {
-  topic_id   Int          @id @default(autoincrement())
-  topic_name String       @unique @db.VarChar(255)
-  vocabitems vocabitems[]
-}
-
 model user_settings {
   user_id         Int       @id
   theme_config    Json
@@ -265,17 +273,21 @@ model usergrammarstatus {
 }
 
 model users {
-  user_id                          Int                  @id @default(autoincrement())
-  email                            String               @unique(map: "email") @db.VarChar(255)
-  password_hash                    String               @db.Char(60)
-  display_name                     String               @db.VarChar(100)
-  role                             users_role           @default(user)
-  avatar_url                       String?              @db.VarChar(255)
-  is_active                        Boolean              @default(true)
-  last_login                       DateTime?            @db.Timestamp(0)
-  created_at                       DateTime             @default(now()) @db.Timestamp(0)
-  admins_admins_assigned_byTousers admins[]             @relation("admins_assigned_byTousers")
-  admins_admins_user_idTousers     admins?              @relation("admins_user_idTousers")
+  user_id                 Int               @id @default(autoincrement())
+  email                   String            @unique(map: "email") @db.VarChar(255)
+  password_hash           String            @db.Char(60)
+  display_name            String            @db.VarChar(100)
+  role                    users_role        @default(user)
+  avatar_url              String?           @db.VarChar(255)
+  jlpt_level              users_jlpt_level?
+  is_active               Boolean           @default(true)
+  last_login              DateTime?         @db.Timestamp(0)
+  created_at              DateTime          @default(now()) @db.Timestamp(0)
+  reset_token             String?           @db.VarChar(255)
+  reset_token_expires     DateTime?         @db.DateTime(0)
+  admins_admins_assigned_byTousers admins[] @relation("admins_assigned_byTousers")
+  admins_admins_user_idTousers     admins?  @relation("admins_user_idTousers")
+  admin_audits                     admin_audit[]
   chatsessions                     chatsessions[]
   diaryentries                     diaryentries[]
   fcfolders                        fcfolders[]
@@ -437,6 +449,13 @@ enum vocabitems_jlpt_level {
 }
 
 enum listening_sets_jlpt_level {
+  N5
+  N4
+  N3
+  N2
+  N1
+}
+
 enum gram_exercises_difficulty_level {
   N5
   N4
@@ -453,6 +472,8 @@ enum listening_sets_type {
 enum users_role {
   user
   admin
+}
+
 enum grammar_rules_jlpt_level {
   N5
   N4

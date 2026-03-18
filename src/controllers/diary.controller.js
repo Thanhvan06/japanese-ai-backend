@@ -198,8 +198,6 @@ export const deleteDiary = async (req, res, next) => {
       return res.status(400).json({ message: "Invalid diary ID" });
     }
 
-    if (!id) return res.status(400).json({ message: "Invalid diary ID" });
-
     const existed = await prisma.diaryentries.findFirst({
       where: { diary_id: id, user_id: userId },
     });
@@ -213,6 +211,7 @@ export const deleteDiary = async (req, res, next) => {
   }
 };
 
+// ✅ ĐÃ SỬA: Thêm safe check cho errors và furigana
 export const checkGrammarDiary = async (req, res, next) => {
   try {
     const userId = pickUserId(req);
@@ -226,7 +225,11 @@ export const checkGrammarDiary = async (req, res, next) => {
 
     console.log("checkGrammarDiary called with text:", text.substring(0, 100));
 
-    const { errors, furigana } = await checkGrammar(text);
+    const result = await checkGrammar(text);
+    
+    // ✅ Safe destructuring với fallback
+    const errors = result?.errors || [];
+    const furigana = result?.furigana || [];
     
     console.log("checkGrammarDiary returning:", {
       errorsCount: errors.length,
@@ -237,7 +240,13 @@ export const checkGrammarDiary = async (req, res, next) => {
   } catch (err) {
     console.error("Error in checkGrammarDiary:", err);
     console.error("Error stack:", err.stack);
-    next(err);
+    
+    // ✅ Trả về response hợp lệ thay vì crash
+    res.status(500).json({ 
+      errors: [], 
+      furigana: [],
+      message: "Grammar check failed" 
+    });
   }
 };
 

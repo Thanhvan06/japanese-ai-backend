@@ -162,19 +162,27 @@ export const promoteToAdmin = async (req, res, next) => {
     const { role } = req.body; // 'super_admin' or 'content_manager'
     if (!role) return res.status(400).json({ message: "Thiếu role" });
     // create admins metadata and set users.role = 'admin'
-    await prisma.$transaction([
-      prisma.admins.create({
+    await prisma.$transaction(async (tx) => {
+      await tx.admins.create({
         data: {
           user_id: targetId,
           role,
           assigned_by: req.user.user_id,
         },
-      }),
-      prisma.users.update({
+      });
+      await tx.users.update({
         where: { user_id: targetId },
         data: { role: "admin" },
-      }),
-    ]);
+      });
+      await tx.admin_audit.create({
+        data: {
+          admin_user_id: req.user.user_id,
+          target_user_id: targetId,
+          action: "PROMOTE_ADMIN",
+          details: JSON.stringify({ role }),
+        },
+      });
+    });
     res.status(201).json({ message: "Đã thăng cấp làm admin" });
   } catch (err) {
     next(err);
@@ -184,10 +192,21 @@ export const promoteToAdmin = async (req, res, next) => {
 export const demoteAdmin = async (req, res, next) => {
   try {
     const targetId = Number(req.params.id);
-    await prisma.$transaction([
-      prisma.admins.delete({ where: { user_id: targetId } }),
-      prisma.users.update({ where: { user_id: targetId }, data: { role: "user" } }),
-    ]);
+    await prisma.$transaction(async (tx) => {
+      await tx.admins.delete({ where: { user_id: targetId } });
+      await tx.users.update({
+        where: { user_id: targetId },
+        data: { role: "user" },
+      });
+      await tx.admin_audit.create({
+        data: {
+          admin_user_id: req.user.user_id,
+          target_user_id: targetId,
+          action: "DEMOTE_ADMIN",
+          details: null,
+        },
+      });
+    });
     res.json({ message: "Đã hủy quyền admin" });
   } catch (err) {
     next(err);
@@ -197,7 +216,17 @@ export const demoteAdmin = async (req, res, next) => {
 export const deleteUser = async (req, res, next) => {
   try {
     const id = Number(req.params.id);
-    await prisma.users.delete({ where: { user_id: id } });
+    await prisma.$transaction(async (tx) => {
+      await tx.users.delete({ where: { user_id: id } });
+      await tx.admin_audit.create({
+        data: {
+          admin_user_id: req.user.user_id,
+          target_user_id: id,
+          action: "DELETE_USER",
+          details: null,
+        },
+      });
+    });
     res.json({ message: "Đã xóa user" });
   } catch (err) {
     next(err);
@@ -214,9 +243,20 @@ export const activateUser = async (req, res, next) => {
       return res.status(400).json({ message: "Tài khoản đã được kích hoạt" });
     }
 
-    const updated = await prisma.users.update({
-      where: { user_id: id },
-      data: { is_active: true },
+    const updated = await prisma.$transaction(async (tx) => {
+      const updatedUser = await tx.users.update({
+        where: { user_id: id },
+        data: { is_active: true },
+      });
+      await tx.admin_audit.create({
+        data: {
+          admin_user_id: req.user.user_id,
+          target_user_id: id,
+          action: "ACTIVATE_USER",
+          details: null,
+        },
+      });
+      return updatedUser;
     });
 
     res.json({ 
@@ -238,9 +278,20 @@ export const deactivateUser = async (req, res, next) => {
       return res.status(400).json({ message: "Tài khoản đã bị vô hiệu hóa" });
     }
 
-    const updated = await prisma.users.update({
-      where: { user_id: id },
-      data: { is_active: false },
+    const updated = await prisma.$transaction(async (tx) => {
+      const updatedUser = await tx.users.update({
+        where: { user_id: id },
+        data: { is_active: false },
+      });
+      await tx.admin_audit.create({
+        data: {
+          admin_user_id: req.user.user_id,
+          target_user_id: id,
+          action: "DEACTIVATE_USER",
+          details: null,
+        },
+      });
+      return updatedUser;
     });
 
     res.json({ 
@@ -252,4 +303,43 @@ export const deactivateUser = async (req, res, next) => {
   }
 };
 
+export const listAdminAudit = async (req, res, next) => {
+  try {
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.min(100, Number(req.query.limit) || 20);
+    const adminId = req.query.admin_id ? Number(req.query.admin_id) : null;
+    const targetId = req.query.target_user_id
+      ? Number(req.query.target_user_id)
+      : null;
+    const action = req.query.action?.trim();
+
+    const where = {};
+    if (adminId) where.admin_user_id = adminId;
+    if (targetId) where.target_user_id = targetId;
+    if (action) where.action = action;
+
+    const [items, total] = await Promise.all([
+      prisma.admin_audit.findMany({
+        where,
+        skip: (page - 1) * limit,
+        take: limit,
+        orderBy: { created_at: "desc" },
+        include: {
+          admin_user: {
+            select: {
+              user_id: true,
+              email: true,
+              display_name: true,
+            },
+          },
+        },
+      }),
+      prisma.admin_audit.count({ where }),
+    ]);
+
+    res.json({ items, total, page, limit });
+  } catch (err) {
+    next(err);
+  }
+};
 
