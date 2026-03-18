@@ -21,6 +21,7 @@ import {
   deleteGrammarExercise,
 } from "../controllers/grammar.controller.js";
 import { adminSearch } from "../controllers/search.controller.js";
+import * as readingAdmin from "../controllers/readingAdmin.controller.js";
 import { auth } from "../middlewares/auth.js";
 import { requireAdmin } from "../middlewares/admin.js";
 import uploadAvatar from "../utils/avatarUpload.js";
@@ -62,6 +63,25 @@ r.get("/grammar-exercises/:id", auth(), requireAdmin(), getGrammarExercise);
 r.post("/grammar-exercises", auth(), requireAdmin(), createGrammarExercise);
 r.put("/grammar-exercises/:id", auth(), requireAdmin(), updateGrammarExercise);
 r.delete("/grammar-exercises/:id", auth(), requireAdmin(), deleteGrammarExercise);
+
+// Reading Sets CRUD
+r.get("/reading/sets", auth(), requireAdmin(), readingAdmin.listReadingSetsAdmin);
+r.post("/reading/sets", auth(), requireAdmin(), readingAdmin.createReadingSetAdmin);
+r.put("/reading/sets/:id", auth(), requireAdmin(), readingAdmin.updateReadingSetAdmin);
+r.patch(
+  "/reading/sets/:id/publish",
+  auth(),
+  requireAdmin(),
+  readingAdmin.togglePublishReadingSetAdmin
+);
+r.delete("/reading/sets/:id", auth(), requireAdmin(), readingAdmin.deleteReadingSetAdmin);
+
+// Reading Items CRUD
+r.get("/reading/items", auth(), requireAdmin(), readingAdmin.listReadingItemsAdmin);
+r.get("/reading/items/:id", auth(), requireAdmin(), readingAdmin.getReadingItemAdmin);
+r.post("/reading/items", auth(), requireAdmin(), readingAdmin.createReadingItemAdmin);
+r.put("/reading/items/:id", auth(), requireAdmin(), readingAdmin.updateReadingItemAdmin);
+r.delete("/reading/items/:id", auth(), requireAdmin(), readingAdmin.deleteReadingItemAdmin);
 
 export default r;
 

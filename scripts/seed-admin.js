@@ -6,11 +6,21 @@ const prisma = new PrismaClient();
 async function main() {
   const email = process.env.ADMIN_EMAIL || "admin@example.com";
   const password = process.env.ADMIN_PASSWORD || "AdminPassword123!";
+  const resetPassword =
+    String(process.env.ADMIN_RESET_PASSWORD || "").toLowerCase() === "true";
 
   // check exist
   const exists = await prisma.users.findUnique({ where: { email } });
   if (exists) {
     console.log("Admin already exists:", exists.user_id);
+    if (resetPassword) {
+      const hash = await bcrypt.hash(password, 10);
+      await prisma.users.update({
+        where: { user_id: exists.user_id },
+        data: { password_hash: hash },
+      });
+      console.log("Reset password for admin user", exists.user_id);
+    }
     // ensure role/admins record exists
     if (exists.role !== "admin") {
       await prisma.users.update({ where: { user_id: exists.user_id }, data: { role: "admin" } });

@@ -1,4 +1,6 @@
 docker compose up --build -d
+admin@example.com
+AdminPassword123!
 chạy model: 
 B1: cd backend
 B2: "docker compose up -d"

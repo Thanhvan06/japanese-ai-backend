@@ -20,9 +20,11 @@
 
     "test:tts": "node test-tts.js",
     "generate:audio": "node generate-all-audio.js",
+    "seed:admin": "node scripts/seed-admin.js",
     "seed:speaking": "node scripts/seed-speaking-phrases.js",
     "seed:listening": "node scripts/seed-listening.js",
-    "seed:reading": "node scripts/seed-reading.js"
+    "seed:reading": "node scripts/seed-reading.js",
+    "db:seed": "npm run seed:admin && npm run seed:speaking && npm run seed:listening && npm run seed:reading"
   },
   "dependencies": {
     "@google-cloud/text-to-speech": "^6.4.0",
