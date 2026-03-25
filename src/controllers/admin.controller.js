@@ -85,8 +85,8 @@ export const getUser = async (req, res, next) => {
       prisma.fcfolders.count({ where: { user_id: id } }).catch(() => 0),
       prisma.fcsets.findMany({
         where: { user_id: id },
-        include: { fccards: true },
-      }).then(sets => sets.reduce((sum, set) => sum + set.fccards.length, 0)).catch(() => 0),
+        include: { cards: true },
+      }).then(sets => sets.reduce((sum, set) => sum + (set.cards?.length || 0), 0)).catch(() => 0),
       prisma.fcsets.aggregate({
         where: { user_id: id },
         _sum: { times_practiced: true },

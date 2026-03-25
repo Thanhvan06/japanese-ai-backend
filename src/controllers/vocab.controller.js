@@ -154,7 +154,7 @@ export const getTestQuestions = async (req, res, next) => {
           user_id: req.user.user_id,
         },
         include: {
-          fccards: true,
+          cards: true,
         },
       });
 
@@ -165,7 +165,7 @@ export const getTestQuestions = async (req, res, next) => {
       }
 
       // Extract vocab IDs from flashcard cards (matching by word)
-      const setWords = flashcardSet.fccards.map(c => c.side_jp.trim());
+      const setWords = (flashcardSet.cards || []).map(c => c.side_jp.trim());
       const vocabItems = await prisma.vocabitems.findMany({
         where: {
           word: { in: setWords },

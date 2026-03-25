@@ -72,13 +72,13 @@ export const getFolders = async (req, res, next) => {
     const folders = await prisma.fcfolders.findMany({
       where: { user_id: req.user.user_id },
       include: {
-        fcsets: {
+        sets: {
           select: {
             set_id: true,
             set_name: true,
             created_at: true,
             _count: {
-              select: { fccards: true }
+              select: { cards: true }
             }
           }
         }
@@ -86,7 +86,13 @@ export const getFolders = async (req, res, next) => {
       orderBy: { folder_id: "desc" }
     });
 
-    res.json({ folders });
+    const normalizedFolders = folders.map((folder) => ({
+      ...folder,
+      fcsets: folder.sets || [],
+      sets: undefined,
+    }));
+
+    res.json({ folders: normalizedFolders });
   } catch (err) {
     next(err);
   }
@@ -153,13 +159,13 @@ export const getSets = async (req, res, next) => {
     const sets = await prisma.fcsets.findMany({
       where,
       include: {
-        fccards: {
+        cards: {
           select: {
             card_id: true,
             mastery_level: true
           }
         },
-        fcfolders: {
+        folder: {
           select: {
             folder_id: true,
             folder_name: true
@@ -169,32 +175,22 @@ export const getSets = async (req, res, next) => {
       orderBy: { created_at: "desc" }
     });
 
-    // Get completion status for each set
-    const setIds = sets.map(s => s.set_id);
-    const completedSessions = await prisma.flashcard_sessions.findMany({
-      where: {
-        user_id: req.user.user_id,
-        set_id: { in: setIds },
-        completed_at: { not: null },
-      },
-      select: {
-        set_id: true,
-      },
-      distinct: ["set_id"],
-    });
-    const completedSetIds = new Set(completedSessions.map(s => s.set_id));
-
     const setsWithCount = sets.map(set => {
-      const hasCompletedRound = completedSetIds.has(set.set_id);
-      const allCardsMastered = set.fccards.length > 0 && 
-        set.fccards.every(card => (card.mastery_level || 1) >= 5);
-      const isCompleted = hasCompletedRound || allCardsMastered;
+      const cards = set.cards || [];
+      const allCardsMastered = cards.length > 0 &&
+        cards.every(card => (card.mastery_level || 1) >= 5);
+      // `flashcard_sessions` is @@ignore in schema, so Prisma client won't have it.
+      // For now, compute completion based on card mastery levels only.
+      const isCompleted = allCardsMastered;
 
       return {
         ...set,
-        card_count: set.fccards.length,
+        card_count: cards.length,
         is_completed: isCompleted,
-        fccards: undefined // Ẩn chi tiết cards
+        fccards: undefined, // Ẩn chi tiết cards
+        fcfolders: set.folder || null,
+        cards: undefined,
+        folder: undefined
       };
     });
 
@@ -215,10 +211,10 @@ export const getSetById = async (req, res, next) => {
         user_id: req.user.user_id
       },
       include: {
-        fccards: {
+        cards: {
           orderBy: { card_id: "asc" }
         },
-        fcfolders: {
+        folder: {
           select: {
             folder_id: true,
             folder_name: true
@@ -231,21 +227,19 @@ export const getSetById = async (req, res, next) => {
       return res.status(404).json({ message: "Không tìm thấy set" });
     }
 
-    // Get completion status
-    const hasCompletedRound = await prisma.flashcard_sessions.findFirst({
-      where: {
-        user_id: req.user.user_id,
-        set_id: setId,
-        completed_at: { not: null },
-      },
-    });
-    const allCardsMastered = set.fccards.length > 0 && 
-      set.fccards.every(card => (card.mastery_level || 1) >= 5);
-    const isCompleted = !!hasCompletedRound || allCardsMastered;
+    const cards = set.cards || [];
+    const allCardsMastered = cards.length > 0 &&
+      cards.every(card => (card.mastery_level || 1) >= 5);
+    // `flashcard_sessions` is @@ignore in schema, so compute completion based on mastery levels.
+    const isCompleted = allCardsMastered;
 
     res.json({ 
       set: {
         ...set,
+        fccards: cards,
+        fcfolders: set.folder || null,
+        cards: undefined,
+        folder: undefined,
         is_completed: isCompleted,
       }
     });
@@ -732,7 +726,7 @@ export const getStudyStats = async (req, res, next) => {
         user_id: req.user.user_id
       },
       include: {
-        fccards: true
+        cards: true
       }
     });
 
@@ -740,13 +734,14 @@ export const getStudyStats = async (req, res, next) => {
       return res.status(404).json({ message: "Không tìm thấy set" });
     }
 
-    const totalCards = set.fccards.length;
-    const masteredCards = set.fccards.filter(c => c.mastery_level >= 5).length;
-    const learningCards = set.fccards.filter(c => c.mastery_level >= 2 && c.mastery_level < 5).length;
-    const newCards = set.fccards.filter(c => c.mastery_level === 1).length;
+    const cards = set.cards || [];
+    const totalCards = cards.length;
+    const masteredCards = cards.filter(c => c.mastery_level >= 5).length;
+    const learningCards = cards.filter(c => c.mastery_level >= 2 && c.mastery_level < 5).length;
+    const newCards = cards.filter(c => c.mastery_level === 1).length;
 
     const avgMastery = totalCards > 0
-      ? set.fccards.reduce((sum, c) => sum + c.mastery_level, 0) / totalCards
+      ? cards.reduce((sum, c) => sum + c.mastery_level, 0) / totalCards
       : 0;
 
     res.json({
@@ -866,13 +861,13 @@ export const completeStudyRound = async (req, res, next) => {
 
     const set = await prisma.fcsets.findFirst({
       where: { set_id: setId, user_id: userId },
-      include: { fccards: true },
+      include: { cards: true },
     });
     if (!set) {
       return res.status(404).json({ message: "Không tìm thấy set" });
     }
 
-    const cardIds = set.fccards.map((c) => c.card_id);
+    const cardIds = (set.cards || []).map((c) => c.card_id);
     const uniqueAnswerIds = new Set(body.answers.map((a) => a.cardId));
     const missingCards = cardIds.filter((id) => !uniqueAnswerIds.has(id));
     if (missingCards.length > 0) {
@@ -975,7 +970,7 @@ export const getLastStudyRound = async (req, res, next) => {
 
     const set = await prisma.fcsets.findFirst({
       where: { set_id: setId, user_id: userId },
-      include: { fccards: true },
+      include: { cards: true },
     });
     if (!set) {
       return res.status(404).json({ message: "Không tìm thấy set" });
@@ -1003,7 +998,7 @@ export const getLastStudyRound = async (req, res, next) => {
       round: {
         round_id: flashRound.round_id,
         set_id: setId,
-        total_cards: flashRound.total_cards ?? set.fccards.length,
+        total_cards: flashRound.total_cards ?? (set.cards || []).length,
         remembered_count: latest.remembered_count,
         not_remembered_count: latest.not_remembered_count,
         completed_at: flashRound.completed_at ?? latest.completed_at,
@@ -1015,7 +1010,7 @@ export const getLastStudyRound = async (req, res, next) => {
         },
       },
       tabs: flashRound.tabs ?? {
-        all: set.fccards.map((c) => c.card_id),
+        all: (set.cards || []).map((c) => c.card_id),
         remembered: [],
         not_remembered: [],
       },
