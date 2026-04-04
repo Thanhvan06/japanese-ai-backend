@@ -15,6 +15,7 @@ import speakingRoutes from "./routes/speaking.routes.js";
 import searchRoutes from "./routes/search.routes.js";
 import adminRoutes from "./routes/admin.routes.js";
 import studyRoutes from "./routes/study.routes.js";
+import progressRoutes from "./routes/progress.routes.js";
 
 // import chatRoutes from "./routes/chat.routes.js";
 import profileRoutes from "./routes/profile.routes.js";
@@ -98,6 +99,7 @@ app.use("/api/reading", readingRoutes);
 app.use("/api/speaking", speakingRoutes);
 app.use("/api", searchRoutes);
 app.use("/api/study", studyRoutes);
+app.use("/api/progress", progressRoutes);
 
 app.use(errorHandler);
 

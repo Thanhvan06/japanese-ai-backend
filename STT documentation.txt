@@ -1,3 +1,19 @@
+Đăng nhập
+Đăng ký
+Đăng xuất
+Quên mật khẩu
+Luyện đọc
+Luyện nghe
+Luyện nói
+ChatbotAI
+Quản lý người dùng
+Quản lý Admin 
+Quản lý luyện đọc
+Quản lý luyện nghe
+Quản lý luyện nói
+Nhật ký Admin
+
+
 docker compose up --build -d
 admin@example.com
 AdminPassword123!

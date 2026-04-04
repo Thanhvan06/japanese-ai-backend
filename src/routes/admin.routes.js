@@ -22,6 +22,7 @@ import {
 } from "../controllers/grammar.controller.js";
 import { adminSearch } from "../controllers/search.controller.js";
 import * as readingAdmin from "../controllers/readingAdmin.controller.js";
+import * as adminProgress from "../controllers/adminProgress.controller.js";
 import { auth } from "../middlewares/auth.js";
 import { requireAdmin } from "../middlewares/admin.js";
 import uploadAvatar from "../utils/avatarUpload.js";
@@ -82,6 +83,13 @@ r.get("/reading/items/:id", auth(), requireAdmin(), readingAdmin.getReadingItemA
 r.post("/reading/items", auth(), requireAdmin(), readingAdmin.createReadingItemAdmin);
 r.put("/reading/items/:id", auth(), requireAdmin(), readingAdmin.updateReadingItemAdmin);
 r.delete("/reading/items/:id", auth(), requireAdmin(), readingAdmin.deleteReadingItemAdmin);
+
+r.get(
+  "/progress/user/:userId",
+  auth(),
+  requireAdmin(),
+  adminProgress.getAdminUserPracticeProgress
+);
 
 export default r;
 
