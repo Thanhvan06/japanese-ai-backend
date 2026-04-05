@@ -419,6 +419,73 @@ export const getSpeakingStats = async (req, res, next) => {
   }
 };
 
+const SPEAKING_PASS_SCORE = 80;
+
+/**
+ * GET /api/speaking/progress?level=N5
+ * Tiến độ theo từng câu mẫu trong cấp độ (cần token để có dữ liệu).
+ */
+export const getSpeakingProgress = async (req, res, next) => {
+  try {
+    if (!req.user) {
+      return res.json({ byPhrase: {} });
+    }
+
+    const { level } = req.query;
+    if (!level) {
+      return res.status(400).json({ message: "Thiếu tham số level" });
+    }
+
+    const phrases = await prisma.speaking_phrases.findMany({
+      where: { jlpt_level: level, is_published: true },
+      select: { phrase_id: true },
+    });
+    const phraseIds = phrases.map((p) => p.phrase_id);
+    if (phraseIds.length === 0) {
+      return res.json({ byPhrase: {} });
+    }
+
+    const attempts = await prisma.speaking_attempts.findMany({
+      where: {
+        user_id: req.user.user_id,
+        phrase_id: { in: phraseIds },
+      },
+      orderBy: { created_at: "asc" },
+      select: {
+        phrase_id: true,
+        accuracy_score: true,
+        created_at: true,
+      },
+    });
+
+    const byPhrase = {};
+    for (const a of attempts) {
+      const pid = a.phrase_id;
+      const score = Number(a.accuracy_score) || 0;
+      if (!byPhrase[pid]) {
+        byPhrase[pid] = {
+          attempted: true,
+          attemptCount: 0,
+          bestScore: 0,
+          lastScore: null,
+          lastAttemptAt: null,
+          passed: false,
+        };
+      }
+      const row = byPhrase[pid];
+      row.attemptCount += 1;
+      row.bestScore = Math.max(row.bestScore, score);
+      row.lastScore = score;
+      row.lastAttemptAt = a.created_at;
+      row.passed = row.bestScore >= SPEAKING_PASS_SCORE;
+    }
+
+    return res.json({ byPhrase });
+  } catch (err) {
+    next(err);
+  }
+};
+
 // ADMIN ENDPOINTS
 
 export const getAdminSpeakingPhrases = async (req, res, next) => {

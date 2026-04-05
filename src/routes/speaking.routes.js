@@ -6,6 +6,7 @@ import {
   practiceSpeaking,
   getSpeakingAttempts,
   getSpeakingStats,
+  getSpeakingProgress,
   getAdminSpeakingPhrases,
   createAdminSpeakingPhrase,
   updateAdminSpeakingPhrase,
@@ -23,10 +24,16 @@ router.get("/phrases", getSpeakingPhrases); // GET /api/speaking/phrases?level=N
 router.get("/phrases/:id", getSpeakingPhraseDetail); // GET /api/speaking/phrases/123
 router.post("/phrases/:id/generate-audio", generatePhraseAudio); // POST /api/speaking/phrases/123/generate-audio
 
-// Protected routes (cần đăng nhập)
-router.post("/practice", upload.single("audio"), practiceSpeaking); // POST /api/speaking/practice
-router.get("/attempts", auth(true), getSpeakingAttempts); // GET /api/speaking/attempts
-router.get("/stats", auth(true), getSpeakingStats); // GET /api/speaking/stats
+// Practice: optional auth — lưu attempt khi user đã đăng nhập (có Bearer token)
+router.post(
+  "/practice",
+  auth(false),
+  upload.single("audio"),
+  practiceSpeaking
+);
+router.get("/attempts", auth(true), getSpeakingAttempts);
+router.get("/stats", auth(true), getSpeakingStats);
+router.get("/progress", auth(false), getSpeakingProgress);
 
 // Admin routes
 router.get(

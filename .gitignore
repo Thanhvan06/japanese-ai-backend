@@ -7,3 +7,6 @@ node_modules
 # Uploaded files
 uploads/*
 !uploads/.gitkeep
+
+# Local Whisper / Hugging Face hub cache (large binaries; never push to GitHub)
+whisper-cache/
