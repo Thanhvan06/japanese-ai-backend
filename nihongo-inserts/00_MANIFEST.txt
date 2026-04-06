@@ -1,0 +1,33 @@
+# Các file INSERT: phần lớn tách từ nihongo.sql; 23–26 tương ứng japanese-ai-backend/scripts/seed-*.js (bản SQL lưu tại đây).
+# Thứ tự chạy: theo số đầu tên file (02, 03, ...).
+# File gốc đối chiếu nihongo.sql: ../nihongo.sql (giữ nguyên, không sửa).
+#
+# Thư mục con không được MySQL docker-entrypoint chạy tự động.
+#
+# (Không tách _prisma_migrations.)
+
+02_diary.sql	diaryentries	nihongo.sql dòng 89-96
+03_fc_cards.sql	fccards	nihongo.sql dòng 112-234
+04_fc_sets.sql	fcsets	nihongo.sql dòng 261-268
+05_grammar.sql	grammar	nihongo.sql dòng 300-631
+06_gram_rules.sql	grammar_rules	nihongo.sql dòng 653-673
+07_gram_ex_p1.sql	gram_exercises	nihongo.sql dòng 693-1131
+08_gram_ex_p2.sql	gram_exercises	nihongo.sql dòng 1132-1354
+09_gram_opt_p1.sql	gram_exercise_options	nihongo.sql dòng 1372-2164
+10_gram_opt_p2.sql	gram_exercise_options	nihongo.sql dòng 2165-2912
+11_gram_opt_p3.sql	gram_exercise_options	nihongo.sql dòng 2913-3632
+12_gram_opt_p4.sql	gram_exercise_options	nihongo.sql dòng 3633-4347
+13_gram_opt_p5.sql	gram_exercise_options	nihongo.sql dòng 4348-5088
+14_gram_opt_p6.sql	gram_exercise_options	nihongo.sql dòng 5089-5103
+15_study_plans.sql	study_plans	nihongo.sql dòng 5120-5126
+16_plan_items.sql	study_plan_items	nihongo.sql dòng 5140-5149
+17_todos.sql	todos	nihongo.sql dòng 5165-5172
+18_topics.sql	topics	nihongo.sql dòng 5184-5214
+19_users.sql	users	nihongo.sql dòng 5236-5246
+20_ui_settings.sql	user_settings	nihongo.sql dòng 5262-5270
+21_vocab_p1.sql	vocabitems	nihongo.sql dòng 5288-5683
+22_vocab_p2.sql	vocabitems	nihongo.sql dòng 5684-5834
+23_admin.sql	users, admins	japanese-ai-backend/scripts/seed-admin.js
+24_speaking.sql	speaking_phrases	japanese-ai-backend/scripts/seed-speaking-phrases.js
+25_reading.sql	reading_sets, reading_items	japanese-ai-backend/scripts/seed-reading.js
+26_listening.sql	listening_sets, listening_items	japanese-ai-backend/scripts/seed-listening.js

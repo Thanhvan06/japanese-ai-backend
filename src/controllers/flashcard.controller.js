@@ -179,8 +179,6 @@ export const getSets = async (req, res, next) => {
       const cards = set.cards || [];
       const allCardsMastered = cards.length > 0 &&
         cards.every(card => (card.mastery_level || 1) >= 5);
-      // `flashcard_sessions` is @@ignore in schema, so Prisma client won't have it.
-      // For now, compute completion based on card mastery levels only.
       const isCompleted = allCardsMastered;
 
       return {
@@ -230,7 +228,6 @@ export const getSetById = async (req, res, next) => {
     const cards = set.cards || [];
     const allCardsMastered = cards.length > 0 &&
       cards.every(card => (card.mastery_level || 1) >= 5);
-    // `flashcard_sessions` is @@ignore in schema, so compute completion based on mastery levels.
     const isCompleted = allCardsMastered;
 
     res.json({ 

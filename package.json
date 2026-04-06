@@ -9,12 +9,10 @@
     "start": "node src/server.js",
 
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate deploy",
     "prisma:push": "prisma db push",
 
     "db:init": "npm run prisma:generate && npm run prisma:push",
-    "db:bootstrap": "npm run prisma:generate && npm run prisma:migrate && npm run seed:speaking && npm run seed:listening",
-    "db:bootstrap:push": "npm run db:init && npm run seed:speaking && npm run seed:listening",
+    "db:bootstrap": "npm run db:init && npm run seed:speaking && npm run seed:listening",
 
     "prisma:studio": "npx prisma studio",
 

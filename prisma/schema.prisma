@@ -1,3 +1,6 @@
+// Trạng thái DB mới nhất (tương đương sau khi áp toàn bộ migration cũ). Nguồn chân lý duy nhất.
+// Đồng bộ DB: npx prisma db push && npx prisma generate
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -26,7 +29,8 @@ model admin_audit {
   action         String
   details        String?  @db.LongText
   created_at     DateTime @default(now()) @db.Timestamp(0)
-  admin_user     users    @relation(fields: [admin_user_id], references: [user_id], map: "fk_audit_admin")
+  admin_user     users    @relation("audit_as_admin", fields: [admin_user_id], references: [user_id], map: "fk_audit_admin")
+  target_user    users?   @relation("audit_as_target", fields: [target_user_id], references: [user_id], onDelete: SetNull, map: "fk_audit_target_user")
 
   @@index([admin_user_id], map: "idx_audit_admin")
   @@index([target_user_id], map: "idx_audit_target")
@@ -85,14 +89,15 @@ model fcfolders {
 }
 
 model fcsets {
-  set_id     Int        @id @default(autoincrement())
-  user_id    Int
-  folder_id  Int?
-  set_name   String     @db.VarChar(255)
-  created_at DateTime   @default(now()) @db.Timestamp(0)
-  cards      fccards[]
-  folder     fcfolders? @relation(fields: [folder_id], references: [folder_id], map: "fk_fcsets_folder")
-  users      users      @relation(fields: [user_id], references: [user_id], onDelete: Cascade, map: "fk_fcsets_user")
+  set_id             Int                  @id @default(autoincrement())
+  user_id            Int
+  folder_id          Int?
+  set_name           String               @db.VarChar(255)
+  created_at         DateTime             @default(now()) @db.Timestamp(0)
+  cards              fccards[]
+  flashcard_sessions flashcard_sessions[]
+  folder             fcfolders?           @relation(fields: [folder_id], references: [folder_id], map: "fk_fcsets_folder")
+  users              users                @relation(fields: [user_id], references: [user_id], onDelete: Cascade, map: "fk_fcsets_user")
 
   @@index([created_at], map: "idx_fcsets_created_at")
   @@index([folder_id], map: "idx_fcsets_folder")
@@ -112,26 +117,29 @@ model fccards {
   @@fulltext([side_jp, side_viet], map: "ftx_fccards_text")
 }
 
-/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
 model flashcard_sessions {
-  session_id           Int
+  session_id           Int       @id @default(autoincrement())
   user_id              Int
   set_id               Int
   remembered_count     Int
   not_remembered_count Int
   completed_at         DateTime? @default(now()) @db.Timestamp(0)
+  user                 users     @relation(fields: [user_id], references: [user_id], onDelete: Cascade, map: "fk_flashcard_sessions_user")
+  set                  fcsets    @relation(fields: [set_id], references: [set_id], onDelete: Cascade, map: "fk_flashcard_sessions_set")
 
-  @@ignore
+  @@index([set_id], map: "fk_flashcard_sessions_set")
+  @@index([user_id, set_id, completed_at], map: "idx_flashcard_last")
 }
 
 model grammar {
-  grammar_id        Int       @id @default(autoincrement())
-  grammar_structure String    @db.VarChar(255)
-  explanation_viet  String    @db.Text
-  example_jp        String    @db.Text
-  example_viet      String?   @db.Text
+  grammar_id        Int              @id @default(autoincrement())
+  grammar_structure String           @db.VarChar(255)
+  explanation_viet  String           @db.Text
+  example_jp        String           @db.Text
+  example_viet      String?          @db.Text
   jlpt_level        JLPTLevel
-  is_published      Boolean   @default(false)
+  is_published      Boolean          @default(false)
+  exercises         gram_exercises[]
 
   @@index([jlpt_level], map: "idx_grammar_level")
   @@index([is_published], map: "idx_grammar_published")
@@ -158,16 +166,21 @@ model grammar_rules {
 }
 
 model gram_exercises {
-  id               Int                             @id @default(autoincrement())
+  id               Int                               @id @default(autoincrement())
   exercise_id      Int
   grammar_id       Int
   question_type    gram_exercises_question_type
-  question_text    String                          @db.Text
-  question_suffix  String?                         @db.Text
-  explanation_note String?                         @db.Text
+  question_text    String                            @db.Text
+  question_suffix  String?                           @db.Text
+  explanation_note String?                           @db.Text
   difficulty_level gram_exercises_difficulty_level
-  is_active        Boolean                         @default(true)
-  created_at       DateTime?                       @default(now()) @db.Timestamp(0)
+  is_active        Boolean                           @default(true)
+  created_at       DateTime?                         @default(now()) @db.Timestamp(0)
+  grammar          grammar                           @relation(fields: [grammar_id], references: [grammar_id], onDelete: Cascade, map: "fk_gram_exercises_grammar")
+  options          gram_exercise_options[]
+
+  @@unique([exercise_id], map: "uq_gram_exercises_exercise_id")
+  @@index([grammar_id], map: "idx_gram_exercises_grammar")
 }
 
 model gram_exercise_options {
@@ -179,6 +192,9 @@ model gram_exercise_options {
   is_correct  Boolean?                          @default(false)
   sort_order  Int?
   created_at  DateTime?                         @default(now()) @db.Timestamp(0)
+  exercise    gram_exercises                    @relation(fields: [exercise_id], references: [exercise_id], onDelete: Cascade, map: "fk_gram_options_exercise")
+
+  @@index([exercise_id], map: "idx_gram_options_exercise")
 }
 
 model study_plans {
@@ -261,11 +277,14 @@ model users {
   role                             UserRole       @default(user)
   admins_admins_assigned_byTousers admins[]       @relation("admins_assigned_byTousers")
   admin                            admins?
-  admin_audits                     admin_audit[]
+  audits_as_admin                  admin_audit[]  @relation("audit_as_admin")
+  audits_as_target                 admin_audit[]  @relation("audit_as_target")
   chats                            chatsessions[]
   diaries                          diaryentries[]
   folders                          fcfolders[]
   fcsets                           fcsets[]
+  flashcard_sessions               flashcard_sessions[]
+  ui_settings                      user_settings?
   plans              study_plans[]
   todos              todos[]
   listening_attempts listening_attempts[]
@@ -285,7 +304,8 @@ model user_settings {
   todo_config     Json
   playlist_config Json
   created_at      DateTime? @default(now()) @db.Timestamp(0)
-  updated_at      DateTime? @default(now()) @db.Timestamp(0)
+  updated_at      DateTime? @default(now()) @updatedAt @db.Timestamp(0)
+  user            users     @relation(fields: [user_id], references: [user_id], onDelete: Cascade, map: "fk_user_settings_user")
 }
 
 model vocabitems {
@@ -303,6 +323,7 @@ model vocabitems {
   @@index([jlpt_level], map: "idx_vocab_level")
   @@index([is_published], map: "idx_vocab_published")
   @@index([topic_id], map: "idx_vocab_topic")
+  @@fulltext([word, meaning, furigana], map: "ftx_vocab_text")
 }
 
 model speaking_phrases {
@@ -313,8 +334,8 @@ model speaking_phrases {
   topic        String?   @db.VarChar(255)
   jlpt_level   JLPTLevel
   is_published Boolean   @default(false)
-  audio_url    String?   @db.VarChar(500)
-  created_at       DateTime           @default(now()) @db.Timestamp(0)
+  audio_url         String?             @db.VarChar(500)
+  created_at        DateTime            @default(now()) @db.Timestamp(0)
   speaking_attempts speaking_attempts[]
 
   @@index([jlpt_level], map: "idx_speaking_jlpt_level")
@@ -503,9 +524,4 @@ enum grammar_rules_category {
   PASSIVE
   CAUSATIVE
   OTHER
-}
-
-enum users_role {
-  user
-  admin
 }

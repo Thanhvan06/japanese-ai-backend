@@ -50,10 +50,10 @@ export const getSpeakingPhrases = async (req, res, next) => {
     });
   } catch (err) {
     console.error("Error in getSpeakingPhrases:", err);
-    // Kiểm tra nếu lỗi do model chưa tồn tại (chưa migrate)
+    // Kiểm tra nếu lỗi do bảng/model chưa tồn tại (chưa db push / generate)
     if (err.message && (err.message.includes("speaking_phrases") || err.message.includes("Unknown model"))) {
       return res.status(500).json({ 
-        message: "Database chưa được migrate hoặc Prisma client chưa được generate. Vui lòng chạy: npx prisma migrate dev && npx prisma generate",
+        message: "Database chưa đồng bộ schema hoặc Prisma client chưa generate. Dev: npx prisma db push && npx prisma generate",
         error: err.message 
       });
     }
